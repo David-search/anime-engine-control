@@ -1,0 +1,595 @@
+[
+  {
+    "topic": "Do external video hosts offer a paid API / subscription / official embed licensing for anime streams?",
+    "answer": "No. None of these video hosts sell what you want. Neither the site-affiliated embed backends (MegaCloud/RapidCloud/VidPlay/GogoCDN) nor the generic file lockers (Filemoon, Streamtape, Doodstream, VOE, StreamWish, Mixdrop, etc.) offer a paid API or subscription that gives you a LICENSED anime catalog you can legally embed/re-stream. Paying them never buys you content rights. Category 1 is private pirate-site infrastructure (mostly not a public product at all). Category 2 sells you the opposite service: they PAY YOU per view for files YOU upload (you supply the content), or they sell downloader-premium and uploader APIs \u2014 not licensed streams.",
+    "overview": "There are two distinct things people conflate as \"video hosts,\" and neither solves your problem. (1) Site-affiliated embed backends \u2014 MegaCloud, VidCloud, RapidCloud (the hianime/9anime/aniwatch network), VidPlay/MyCloud, GogoCDN \u2014 are NOT products you can buy. They are the private \"Platform-as-a-Service\" media backends of specific pirate networks (operated largely out of Vietnam), storing already-pirated files and serving them to affiliated front-end domains. You cannot sign up and pay for a licensed feed; the only way third parties \"use\" them is by scraping their embed/decrypt flow (e.g. the aniwatch/Consumet/Anify scraper APIs), which is exactly the illegal activity you said you want to avoid. These backends are also extremely volatile: HiAnime, 9anime, AniWatch and AnimeKai went dark in early-mid 2026 after a US Trade Representative crackdown on Vietnam. (2) Generic file lockers / \"video lockers\" \u2014 Filemoon, Streamtape, Doodstream, VOE, Mp4upload, StreamSB/StreamWish, Mixdrop, Upstream, Vidoza, Vidhide \u2014 are upload-your-own-file hosts with a pay-per-view monetization model. Their business model is the REVERSE of licensing: they pay UPLOADERS a CPM for traffic (e.g. Doodstream ~$30/10k views Tier-1 down to ~$4/10k elsewhere), monetizing via ads and forced anti-adblock. Their \"premium\" is for downloaders (ad-free, faster downloads); their \"API\" is for uploaders (programmatic/remote-URL upload, get embed_url + file_code). So you would still have to SOURCE the anime files yourself (which you said you can't/won't), upload them, and you'd be the one infringing \u2014 plus you'd get paid by them, not the other way around. None of them clears any rights. Legitimate licensed catalog access for an indie does not come from \"video hosts\" at all \u2014 it comes from bespoke licensing deals with distributors (Sentai/HIDIVE, Aniplex, Crunchyroll, Viz, Toei, Kadokawa) with per-episode minimum guarantees, which is a different (and expensive) path entirely. There is no self-serve paid API/subscription that legally hands an indie an embeddable anime catalog.",
+    "options": [
+      {
+        "name": "MegaCloud / VidCloud / RapidCloud (hianime/9anime/aniwatch backend)",
+        "whatYouGet": "Nothing purchasable. Private pirate-network PaaS backend that stores pirated files and serves encrypted embeds only to its own affiliated front-end sites. No public sign-up, no paid licensing tier, no catalog you can buy. The only third-party 'access' is via scraper/decryptor APIs (aniwatch, MegacloudKeys) \u2014 illegal and exactly what you want to avoid.",
+        "cost": "Not for sale to outsiders",
+        "legality": "Pirate infrastructure. Listed by MPA/USTR as a notorious market; scraper repos for it were DMCA'd off GitHub (Mar 2026). Illegal to use."
+      },
+      {
+        "name": "VidPlay / MyCloud (9anime), GogoCDN (gogoanime)",
+        "whatYouGet": "Same as above \u2014 bespoke embed/CDN infrastructure tied to specific pirate sites, not a sellable product. No licensing program.",
+        "cost": "Not for sale",
+        "legality": "Pirate infrastructure; many already defunct after 2026 shutdowns."
+      },
+      {
+        "name": "'Anikoto' / MegaPlay-style anime embed APIs (e.g. megaplay.buzz/api)",
+        "whatYouGet": "An API advertising the 'full HiAnime library' with recent-anime, series-by-ID, and episode embed-URL endpoints \u2014 a grey-market re-host/scraper that survives HiAnime's shutdown. No disclosed licensing, no rights, no pricing transparency.",
+        "cost": "Unclear/undisclosed (likely free or cheap; not a real license)",
+        "legality": "Grey/black market. Sources are pirated; not a legal way to get a catalog."
+      },
+      {
+        "name": "Doodstream",
+        "whatYouGet": "Upload-your-own-files locker. PPV model PAYS YOU per view. HTTP API (rate-limited ~10/sec) for upload + remote-URL upload returning download_url, embed_url, file_code. Premium = downloader perks. No licensed catalog.",
+        "cost": "They pay you: ~$30/10k views Tier-1 (US/UK/CA/AU), ~$20 Tier-2, ~$10 Tier-3, ~$6 Tier-4, ~$1.50 Turkey, ~$4 all-other. $10 min payout. (Rates per pre-2025 docs \u2014 verify current.)",
+        "legality": "Legal only if you own/clear the files. Hosting licensed anime there without rights is infringement; they grant no rights."
+      },
+      {
+        "name": "Filemoon",
+        "whatYouGet": "Freemium upload locker. Free = ad-supported; Premium = ad-free + higher quality + higher uploader payouts. Supports remote upload from Mixdrop/Doodstream/StreamSB/Streamtape/Vidoza etc. No licensed catalog.",
+        "cost": "They pay uploaders ~$7-$8 per 10k premium-country views (per their guide). No fee buys you content.",
+        "legality": "Same \u2014 no rights conferred; you must supply (and own) files."
+      },
+      {
+        "name": "Streamtape",
+        "whatYouGet": "Upload locker with uploader-controlled ad density and 11% referral commission. Pays uploaders for views. No catalog to license.",
+        "cost": "They pay you (PPV); payouts via PayPal, BTC, Skrill, USDT, Paxum, etc.",
+        "legality": "No rights conferred."
+      },
+      {
+        "name": "VOE (voe.sx)",
+        "whatYouGet": "Upload locker, PPV for uploaders, two-level affiliate, branding removal, DDoS protection. No licensed catalog.",
+        "cost": "They pay you (PPV); $5 min payout, ~$40 ceiling CPM cited.",
+        "legality": "No rights conferred."
+      },
+      {
+        "name": "StreamWish / StreamSB",
+        "whatYouGet": "Upload locker: 'earn a fixed amount per 10,000 downloads or views,' stats dashboard, Service API for upload. Premium for downloaders. No licensed catalog.",
+        "cost": "They pay you (PPV); exact CPM not published on homepage.",
+        "legality": "No rights conferred."
+      },
+      {
+        "name": "Mixdrop",
+        "whatYouGet": "Upload locker with earnings calculator, creator-controlled ad density, forced anti-adblock, adult monetization, global reach incl. China. PPV for uploaders. No catalog.",
+        "cost": "They pay you (PPV); rate depends on views/geo per their calculator.",
+        "legality": "No rights conferred."
+      },
+      {
+        "name": "Mp4upload / Upstream / Vidoza / Vidhide",
+        "whatYouGet": "Same archetype \u2014 upload-your-own-file lockers with PPV/affiliate uploader payouts and downloader premium. None sell a licensed embeddable catalog.",
+        "cost": "They pay you (PPV), rates vary by host/geo",
+        "legality": "No rights conferred."
+      },
+      {
+        "name": "'All-in-one auto-reupload' tools (e.g. WJunction sellers)",
+        "whatYouGet": "Software (not a host) that mass-uploads YOUR files across Doodstream/Filemoon/Streamtape/VOE at once, with multi-embed, auto-restore of deleted videos, and VAST ad monetization. Built for pirate aggregators to maximize PPV. Provides no content and no rights.",
+        "cost": "~$150-$350 one-time (one domain per license)",
+        "legality": "A piracy-operations tool; provides zero licensing."
+      },
+      {
+        "name": "Legitimate path: direct licensing via distributors",
+        "whatYouGet": "Bespoke contracts with Sentai/HIDIVE, Aniplex, Crunchyroll, Viz, Toei, Kadokawa for streaming rights (sub/dub, by territory/term). This is the ONLY legal way to get an embeddable catalog \u2014 and it is NOT a video-host product, API, or subscription.",
+        "cost": "Per-episode minimum guarantees: catalog titles ~<$1k-couple-$k/ep; mid-tier simulcast small territories ~$2k-$5k/ep; top franchises ~$50k-$200k+/ep; plus localization (subtitling ~$3k-$8k per 12-ep season).",
+        "legality": "Fully legal but capital-intensive, deal-by-deal, with MGs \u2014 effectively out of reach for a typical solo indie."
+      }
+    ],
+    "pricing": [
+      "Doodstream PPV (pays UPLOADERS): ~$30 per 10k views Tier-1 (US/UK/CA/AU), ~$20 Tier-2 (DE/DK/FI/NO/SE), ~$10 Tier-3, ~$6 Tier-4, ~$1.50 Turkey, ~$4 all-other; $10 min payout (figures from pre-2025 docs)",
+      "Filemoon PPV (pays UPLOADERS): ~$7-$8 per 10k premium-country views per their own guide",
+      "VOE: ~$40 CPM ceiling, $5 min payout, two-level affiliate",
+      "Streamtape: 11% referral commission; uploader PPV",
+      "'All-in-one auto-reupload' tool: ~$150-$350 one-time, one domain per license",
+      "Legal anime licensing MG per episode: catalog titles <$1,000-$2,000; mid-tier simulcast small territory $2,000-$5,000; top-tier franchise N. America $50,000-$200,000+",
+      "Localization add-on: subtitling one language ~$3,000-$8,000 per 12-episode season (dubbing is much more)",
+      "Net point: every file-locker price is money they pay YOU for traffic, not a fee that licenses content TO you"
+    ],
+    "gotchas": [
+      "Direction of payment is inverted from what the developer expects: file lockers PAY uploaders per view; you don't pay them for a catalog. You still must source the files yourself.",
+      "Embed backends (MegaCloud/RapidCloud/VidPlay/GogoCDN) are NOT products \u2014 they're private pirate infrastructure. 'Using' them = scraping/decrypting their embeds, which is the illegal route the developer wants to avoid.",
+      "Paying for any locker premium/API does not clear ANY copyright. If you upload licensed anime without rights, YOU are the infringer; the host's TOS pushes liability onto you.",
+      "Grey-market 'anime APIs' that advertise the 'full HiAnime library' (e.g. Anikoto/MegaPlay-style) are scrapers/re-hosts of pirated content with no licensing \u2014 using them is still piracy even though they look like a clean paid API.",
+      "Extreme volatility: HiAnime, 9anime, AniWatch, AnimeKai and the MegaCloud/VidCloud/RapidCloud backends went dark in early-mid 2026 after the USTR named Vietnam a Priority Foreign Country (May 6, 2026). Building on this infrastructure is building on sand.",
+      "Active legal enforcement: Remove Your Media LLC (for Crunchyroll, Viz, others) DMCA'd 900+ anime scraper repos off GitHub (Mar 23, 2026), including aniwatch and MegacloudKeys.",
+      "The only legal embeddable-catalog path (direct distributor licensing) is not an API or subscription and carries per-episode minimum guarantees plus localization costs \u2014 realistically unaffordable for a solo indie.",
+      "Crunchyroll has no public catalog-embed/affiliate API for third-party sites to re-stream its library; its Partner Portal is not a 'license-and-embed our catalog' self-serve product."
+    ],
+    "verification": {
+      "refuted": [
+        {
+          "claim": "Doodstream CPM tiers ($30/$20/$10/$6/$1.50/$4 per 10k) come from pre-2025 docs and may have changed; verify on doodstream.com/earn-money.",
+          "status": "outdated",
+          "note": "The 'may have changed' framing is CORRECT \u2014 they have. Current live doodstream.com/earn-money shows different numbers: Tier1 $33, Tier2 $22, Tier3 $11, Tier4 $7, Tier5 (Turkey) $1.50, all-others/worldwide $5. So the claimed $30/$20/$10/$6/.../$4 figures are stale; only the Turkey $1.50 still matches. Referral confirmed at 10% lifetime; min payout $10.",
+          "sources": [
+            "https://doodstream.com/earn-money"
+          ]
+        },
+        {
+          "claim": "VOE's ~$40 CPM ceiling / $5 min payout and Streamtape's 11% referral are from forum/comparison sources, not primary host pages.",
+          "status": "refuted",
+          "note": "Mixed, leans refuted on the specifics. VOE primary page (voe.sx/earn-money) shows a top tier of $45 per 10,000 views for AU/UK/US \u2014 i.e. $4.50 CPM per 1,000, NOT a '$40 CPM' ceiling (the claim conflates per-10k and per-1k). VOE min payout is $10 on the primary page, not $5. The 'from forum/comparison sources' framing is partly right for the inflated number, but the actual primary-page figures contradict the stated values. Streamtape 11% referral IS corroborated (by third-party zeroearners.com), consistent with the claim that it's non-primary; Streamtape min payout confirmed $10. Net: VOE figures as stated are wrong vs the primary page; Streamtape 11% sourcing characterization is accurate.",
+          "sources": [
+            "https://voe.sx/earn-money",
+            "https://www.wjunction.com/threads/streamtape-com-new-partner-program-rates-reliable-and-profitable-1080p-api-subtitles-anti-adblock-fast-support.245974/",
+            "https://zeroearners.com/make-money/make-money-for-videos/"
+          ]
+        }
+      ],
+      "corrections": [
+        "Doodstream rates in the overview ('~$30/10k Tier-1 down to ~$4/10k elsewhere') are stale. Current doodstream.com/earn-money shows Tier1 $33 / Tier2 $22 / Tier3 $11 / Tier4 $7 / Turkey $1.50 / worldwide $5. Update the example to ~$33/10k Tier-1 and ~$5/10k worldwide.",
+        "The '~$40 CPM ceiling' for VOE is incorrect as stated. VOE's primary page lists a top tier of $45 per 10,000 views (= $4.50 CPM per 1,000) for AU/UK/US, and a $10 minimum payout (not $5). The '$40' figure appears to be a per-10k number mislabeled as CPM, or an inflated forum number.",
+        "Filemoon's specific '~$7-$8/10k premium' figure is not actually stated on Filemoon's own guide; the page only gives vague monthly estimates and a $6/10k 'other countries' rate. Treat the $7-$8 number as unsubstantiated rather than 'from their marketing guide.'",
+        "The 9anime/AniWatch shutdown is not solely a Vietnam story: multiple 2026 reports tie that network to a single operator arrested in Spain. The USTR/Vietnam crackdown is real and separately documented, but attribution of specific domains should not be flattened to 'operated largely out of Vietnam' alone."
+      ],
+      "additionalFindings": [
+        "The core thesis of the overview is correct and well-supported: (a) MegaCloud/VidCloud/RapidCloud/GogoCDN are private pirate-network backends you cannot license or buy into \u2014 third parties only 'use' them via scrapers (aniwatch-api, Consumet, Anify), which is the illegal path; (b) generic lockers (Doodstream/Filemoon/VOE/Streamtape/StreamWish/Mixdrop) pay UPLOADERS a CPM and clear no rights \u2014 the reverse of licensing; (c) legitimate catalog access only comes from bespoke distributor deals with per-episode MGs. All three pillars verified against current sources.",
+        "Anikoto -> MegaPlay is effectively the live successor relay to the dead HiAnime/aniwatch scraper ecosystem as of mid-2026 (legacy HiAnime episode IDs still resolve). This concretely demonstrates the claim that these grey-market APIs reappear under new names after takedowns.",
+        "Doodstream rates verified are slightly HIGHER than the claim across most tiers (e.g. Tier1 $33 vs claimed $30), so the claim understates current payouts rather than overstating them.",
+        "Streamtape declined to publicly disclose play-count thresholds on the WJunction thread (told a user it would PM the details), reinforcing that locker CPM/threshold terms are opaque and not reliably documented on primary pages."
+      ]
+    },
+    "sources": [
+      {
+        "title": "FileMoon \u2014 What Is FileMoon? Full Guide 2026",
+        "url": "https://filemoon.org/en/blog/articles/what-is-filemoon-full-guide-2026"
+      },
+      {
+        "title": "DoodStream \u2014 How can I earn money here? (Helpdesk)",
+        "url": "https://help.doodstream.com/en/article/how-can-i-earn-money-here-3m6jj1/"
+      },
+      {
+        "title": "DoodStream API Documentation",
+        "url": "https://doodstream.com/api-docs"
+      },
+      {
+        "title": "Pay per view Video Hosting Doodstream \u2014 affiliate programs",
+        "url": "https://www.affiliate-programs.biz/pay-per-view-video-hosting-doodstream/"
+      },
+      {
+        "title": "StreamWish (homepage / business model)",
+        "url": "https://streamwish.com/"
+      },
+      {
+        "title": "All-in-One Video & File Hosting Solution with Automatic Reupload (WJunction listing)",
+        "url": "https://www.wjunction.com/threads/all-in-one-video-file-hosting-solution-with-automatic-reupload-for-doodstream-filemoon-streamtape-streamvid-voe-vtube.264976/"
+      },
+      {
+        "title": "I tried 7 video hosting and streaming services for PPV projects (TechRadar)",
+        "url": "https://www.techradar.com/pro/i-tried-7-video-hosting-and-streaming-services-and-heres-my-favorite-one-for-ppv-projects"
+      },
+      {
+        "title": "Anikoto video API \u2014 HiAnime library",
+        "url": "https://megaplay.buzz/api"
+      },
+      {
+        "title": "Why Your Favorite Anime Streams Like HiAnime & 9anime Are Vanishing (MegaCloud/VidCloud/RapidCloud backend explained)",
+        "url": "https://aniwave.city/why-your-favorite-anime-streams-like-hianime-9anime-are-vanishing-the-vietnam-piracy-crackdown-explained/"
+      },
+      {
+        "title": "More Anime Streaming Sites Face Shutdown as HiAnime and 9anime Go Dark (USTR/Vietnam)",
+        "url": "https://www.cbr.com/anime-streaming-crackdown-ustr-vietnam/"
+      },
+      {
+        "title": "GitHub Nukes 900+ Anime Piracy Repos and Forks (TorrentFreak)",
+        "url": "https://torrentfreak.com/github-nukes-900-anime-piracy-repos-and-forks-but-rejects-circumvention-claims/"
+      },
+      {
+        "title": "Crunchyroll Officially Wipes Out 900+ Anime Piracy Apps (Collider)",
+        "url": "https://collider.com/crunchyroll-anti-piracy-github-removes-900-third-party-apps/"
+      },
+      {
+        "title": "Anify: Why the Anime Scraping Giant Still Works (Consumet/Anify scrapers)",
+        "url": "https://filtron.co/anify-why-the-anime-scraping-giant-still-works-and-why-it-might-not-16iu"
+      },
+      {
+        "title": "Anime Licensing Guide For Streamers & Buyers (Vitrina)",
+        "url": "https://vitrina.ai/blog/anime-licensing-guide/"
+      },
+      {
+        "title": "How Much Does It Cost to License Anime Series? (Anime News Network)",
+        "url": "https://www.animenewsnetwork.com/feature/2021-08-02/how-much-does-it-cost-to-license-anime-series/.175579"
+      },
+      {
+        "title": "The Real Cost Of Licensing Anime For Streaming (Vitrina)",
+        "url": "https://vitrina.ai/blog/how-much-does-it-cost-to-license-anime-for-streaming/"
+      },
+      {
+        "title": "Crunchyroll Partner Portal",
+        "url": "https://partner.crunchyroll.com/"
+      }
+    ]
+  },
+  {
+    "topic": "Paid/hosted \"streaming API\" and \"embed API\" reseller services for anime (sub+dub) \u2014 do they exist, what they cost, and the honest legality",
+    "answer": "No \u2014 this is a trap, not a viable strategy. For anime with English sub+dub, there is NO legitimate paid streaming/embed API an indie can license. Every \"paid\" or \"free\" anime-streaming API and every movie/TV embed reseller (vidsrc, 2embed, superembed, etc.) sources its streams by scraping licensed sites (Crunchyroll, HiAnime/Zoro, MegaCloud) under the hood. Paying them transfers cash but NOT rights \u2014 you inherit their liability, and the whole layer is being systematically destroyed (vidsrc.to seized 2024; HiAnime/MegaCloud dark and 900+ repos nuked in 2026). \"Pay to outsource the scraping\" buys you a more fragile pirate site, not a legal one.",
+    "overview": "There are three buckets. (a) LEGIT for an indie: only METADATA APIs (Jikan/MyAnimeList, AniList, Kitsu, TMDB, MangaDex) \u2014 these are free/cheap and legal but give you ZERO video. No anime rightsholder (Crunchyroll, Sony/Aniplex, Netflix, Sentai/HIDIVE) offers a licensable streaming or embed API to indies; Crunchyroll has no official API at all. (b) GREY-MARKET PAID/FREE \"streaming API\" resellers that DO return playable stream/embed URLs: hosted Consumet-style APIs (e.g. MiruroAPI, ezvidapi), RapidAPI listings (gogoanime2, \"Anime Streaming,\" AnimeAPI), and the movie/TV embed resellers reused for anime (vidsrc.* , 2embed, superembed, autoembed, vidlink, embed.su). These work by scraping pirate/aggregator sites in real time. Most are actually free (ad/popup-funded) or cheap RapidAPI tiers \u2014 the \"paid\" framing barely exists because the value is just hosted scraping, which is cheap to provide and legally radioactive to sell. Crucially, for ANIME sub+dub specifically, the movie/TV embed kings mostly do NOT cover anime well \u2014 vidsrc.mov explicitly says \"Anime support is currently not available... on the roadmap.\" Anime sub/dub coverage comes only from the Consumet/aniwatch-scraper family, which all depend on the SAME upstream (HiAnime/Zoro + MegaCloud). (c) DOESN'T EXIST: a stable, legal, licensed pay-per-stream anime API for indies. It is not a thing.",
+    "options": [
+      {
+        "name": "Metadata-only APIs: Jikan (MyAnimeList), AniList, Kitsu, TMDB, MangaDex",
+        "whatYouGet": "Titles, episodes, art, synopses, schedules, ratings \u2014 NO video, NO sub/dub streams. This is the only legal building block; you still have no files to play.",
+        "cost": "Free (AniList ~90 req/min; Jikan free public). RapidAPI MyAnimeList mirror has paid tiers but same data.",
+        "legality": "Legal for metadata. Does not solve the core problem (no streams). Building a 'streaming site' on these means you still must source video elsewhere."
+      },
+      {
+        "name": "Hosted Consumet-style anime APIs (MiruroAPI, ezvidapi, self-hosted Consumet)",
+        "whatYouGet": "Actual M3U8 stream URLs with SUB + DUB, skip-timestamps, thumbnails \u2014 exactly what you want technically. ezvidapi turns a TMDB ID into an iframe or .m3u8; MiruroAPI advertises '12 providers', sub/dub/download.",
+        "cost": "Free, no API key (ad-free, open-source). 'Paid hosted Consumet' is largely marketing \u2014 the real cost is $0 plus your own hosting if you self-deploy.",
+        "legality": "Illegal under the hood. They scrape Crunchyroll/HiAnime/Zoro/MegaCloud. MiruroAPI even footers 'Educational use only.' Using their output to run a public anime site = contributory/secondary copyright infringement. Public Consumet was shut down; self-hosting just moves the liability to you."
+      },
+      {
+        "name": "RapidAPI 'anime streaming' listings (gogoanime2/riimuru, 'Anime Streaming', AnimeAPI, 'Latest Anime API')",
+        "whatYouGet": "Some return real stream/m3u8 links (gogoanime scrapers); many are just metadata. Quality and dub coverage inconsistent; gogoanime-class sources are themselves pirate sites.",
+        "cost": "RapidAPI freemium: free tier (e.g. AnimeAPI 50 req/day), then per-month plans; overage commonly ~$0.03/request (e.g. Zyla 'Popular Anime' $0.0324870/req). Cheap, but you're paying a random dev, not a licensor.",
+        "legality": "Same as Consumet \u2014 scraping resold via a marketplace. RapidAPI's ToS doesn't grant content rights; the publisher has none to give. You inherit infringement risk; the API can vanish overnight."
+      },
+      {
+        "name": "Movie/TV embed resellers reused for anime (vidsrc.*, 2embed, superembed, autoembed, vidlink, embed.su)",
+        "whatYouGet": "Drop-in iframe players by IMDB/TMDB ID with multi-server failover, subtitles. BUT anime is weak/absent: vidsrc.mov FAQ says anime is NOT supported (roadmap only). When 'anime' works it's via the TV path and dub coverage is poor.",
+        "cost": "Free; monetized by one popup ad (superembed) or affiliate ad programs. They pitch 'no DMCA worries' \u2014 a lie. Links expire (superembed URLs valid 48h).",
+        "legality": "Flatly illegal aggregation of pirate streams. vidsrc.to was seized by ACE/MPA in the 2024 Fmovies takedown (Delhi HC injunction hit 248 vidsrc domains); MegaCloud (powering 260+ sites) named a 'notorious market' by USTR/MPA. Their 'DMCA-proof' claim is marketing, not law."
+      },
+      {
+        "name": "Self-hosting the open-source scrapers yourself (Consumet, aniwatch/aniwatch-api)",
+        "whatYouGet": "Full control of the same sub/dub scraping \u2014 until the upstream dies.",
+        "cost": "Your server cost only.",
+        "legality": "Worst-of-both: you now ARE the scraper operator. In March 2026 GitHub removed 900+ repos incl. aniwatch, aniwatch-api and MegacloudKeys after a complaint by Remove Your Media LLC for Crunchyroll/VIZ. You'd be the named infringer."
+      },
+      {
+        "name": "Licensed anime streaming API for indies (what you actually want)",
+        "whatYouGet": "Nothing \u2014 it does not exist. No anime distributor sublicenses playable streams to indie sites via API.",
+        "cost": "N/A",
+        "legality": "The only legal path is becoming an actual licensee/distributor (multi-year minimum-guarantee deals with Aniplex/Sony, Toei, Sentai/HIDIVE, etc. \u2014 six/seven figures, gated to established platforms), or being an affiliate that LINKS OUT to Crunchyroll. Neither lets you serve streams from your own site."
+      }
+    ],
+    "pricing": [
+      "Hosted Consumet-style anime APIs (MiruroAPI, ezvidapi): $0 \u2014 free, no API key, ad-free/open-source. 'Paid hosted Consumet' tiers are essentially marketing; real cost is your own hosting if self-deployed.",
+      "RapidAPI anime APIs: freemium. AnimeAPI free tier = 50 requests/day; paid plans monthly + overage. Zyla 'Popular Anime API' overage = $0.0324870 per request, ~7-day/50-req free trial.",
+      "Embed resellers (vidsrc.*, 2embed, superembed, autoembed, vidlink, embed.su): free; monetized via a single popup ad (superembed) or affiliate 'earn' ad programs. No legitimate paid SLA tier exists.",
+      "superembed technical limits: 1 popup ad, rate limit 10 requests/10s per IP, stream URLs valid 48h (they tell you to cache, not call per visitor).",
+      "Legit metadata APIs (the only legal option): Jikan free; AniList free (~90 req/min); TMDB free for non-commercial-ish use; Kitsu/MangaDex free.",
+      "A licensed pay-per-stream anime API priced for indies: does not exist at any price. Real anime licensing = minimum-guarantee distribution deals (typically five-to-seven figures, multi-year), not an API subscription."
+    ],
+    "gotchas": [
+      "'Paying' does NOT confer rights. A sublicense can never grant more than the underlying license, and these resellers have NO license \u2014 so they have nothing to sublicense. Money changing hands is legally irrelevant; you and they are both infringing.",
+      "The 'DMCA-proof / links are protected' claims (vidsrc, superembed) are false marketing. vidsrc.to was seized in the 2024 ACE/Fmovies takedown; a Delhi High Court injunction targeted 248 vidsrc-linked domains.",
+      "Single point of failure: virtually ALL anime sub/dub APIs (Consumet, MiruroAPI, aniwatch, RapidAPI gogoanime) ultimately scrape the SAME upstreams \u2014 HiAnime/Zoro + MegaCloud. When that backbone dies, every downstream API dies at once.",
+      "That backbone DID die: HiAnime (150M+ monthly visits) went dark early 2026; MegaCloud (backend for 260+ pirate sites) was named a USTR/MPA notorious market; GitHub nuked 900+ anime-scraper repos (aniwatch, aniwatch-api, MegacloudKeys) on 2026-03-23 per a Crunchyroll/VIZ complaint. The pipeline you'd build on is currently broken.",
+      "The movie/TV embed giants don't actually solve anime: vidsrc.mov explicitly states anime is NOT supported (roadmap only); dub coverage from the TV path is poor. Anime sub/dub forces you onto the fragile Consumet/aniwatch family.",
+      "Liability flows to YOU as the public-facing operator. US law: the host has direct liability under the 'server test,' but a site that embeds/links can be SECONDARILY liable for contributory infringement \u2014 especially once you know (or obviously should know) the content is pirated, and definitely after a takedown notice. Running an anime site on these APIs is knowing infringement.",
+      "Self-hosting the scrapers makes it worse, not better \u2014 you become the named operator (see AnimePlay shutdown March 2026: ACE seized servers, DBs, 29 GitHub repos, 15 domains; sole operator identified).",
+      "ACE/MPA enforcement now targets the whole chain (app + embed reseller + host), uses DMCA subpoenas to Cloudflare/registrars to unmask operators (names, IPs, emails, payment histories), and criminal referrals \u2014 not just polite takedowns."
+    ],
+    "verification": {
+      "refuted": [],
+      "corrections": [
+        "TorrentFreak quote: the report's actual wording is 'since we have already seen many rebrands of these services in the past, it would not be a surprise to see a new service pop up in the future' \u2014 the claim's paraphrase 'a new service could pop up' captures the meaning but is not a verbatim quote.",
+        "Claim 5 / overview wording: it is district courts WITHIN the Second Circuit (chiefly SDNY: Goldman v. Breitbart, McGucken v. Newsweek) that reject the server test; the Second Circuit Court of Appeals itself has NOT ruled on it. Saying 'Second Circuit rejects it' as shorthand is imprecise. Rejection also extends beyond NY (Utah, W.D. Texas).",
+        "Overview bucket (b) overstates that anime sub+dub coverage 'comes only from' the Consumet/aniwatch (HiAnime/Zoro+MegaCloud) family. Gogoanime-based scrapers (e.g., gogoanime2) and other aggregators also provide some sub (and limited dub) coverage; the accurate statement is that the best/most complete sub+dub coverage concentrates in that family.",
+        "Overview bucket (a) 'free/legal' should be qualified: legality is conditional on each API's terms \u2014 MangaDex in particular restricts heavy commercial redistribution of chapter content, and Jikan is an UNOFFICIAL MyAnimeList scraper (rate-limited), not an official MAL product.",
+        "Claim 4 nuance: AnimeAPI's '50 requests/day' is not a pure free tier \u2014 it is bundled with a $69 one-time 'Ultimate Anime Scraper' purchase; exceeding it requires a custom RapidAPI subscription."
+      ],
+      "additionalFindings": [
+        "vidsrc.mov is a brand-new domain (~1 month old via Tucows) with a 16/100 trust score, flagged by ANY.RUN for obfuscated JS, and VidSrc reportedly now runs mainly from Russia-linked domains after Hollywood studios obtained an Indian court action \u2014 reinforcing both the volatility claim and the 'legally radioactive' framing.",
+        "The GitHub purge was framed as a DMCA anti-circumvention claim (not standard DMCA) by Remove Your Media LLC for Crunchyroll and VIZ Media; GitHub removed 900+ repos but REJECTED the circumvention argument, reasoning the code did not circumvent rightsholders' own DRM. This nuance matters for the legality discussion: takedown happened, but the strongest legal theory was rebuffed.",
+        "MegaCloud is described in MPA/USTR notorious-markets reporting as a 'pirate content management system' delivering infringing video to 260+ pirate streaming sites \u2014 which concretely explains why so many anime APIs share one upstream and all break together.",
+        "Zyla's Popular Anime API exact tiers confirmed: Basic $24.99/mo (1,000 req), Pro $49.99/mo (5,000), Pro Plus $99.99/mo (25,000), Premium $199.99/mo (100,000), all with $0.0324870/request overage and a 7-day/50-request free trial \u2014 useful concrete pricing for the 'cheap, not really paid' thesis.",
+        "Confirmation that RapidAPI pricing pages render client-side only (title visible, tiers not) is itself reproducible \u2014 anyone re-verifying gogoanime2 pricing via fetch will hit the same blank-page issue; a logged-in browser or the RapidAPI API would be needed to extract those tiers.",
+        "There are active signals of HiAnime relocation attempts (e.g., a 'Hianime new address / 21 May 2026' page), but reliability/legitimacy of any successor is unverified and such mirrors are themselves frequent phishing/scam vectors."
+      ]
+    },
+    "sources": [
+      {
+        "title": "Consumet Alternative \u2014 Hosted Streaming API (ezvidapi)",
+        "url": "https://ezvidapi.com/alternatives/consumet"
+      },
+      {
+        "title": "ezvidapi \u2014 Free Movie & TV Streaming API by TMDB ID",
+        "url": "https://ezvidapi.com/"
+      },
+      {
+        "title": "MiruroAPI \u2014 Free Anime Streaming API (M3U8, sub/dub)",
+        "url": "https://mirurotvapi.vercel.app/"
+      },
+      {
+        "title": "VidSrc \u2014 Next Generation Video Streaming API (anime not supported / roadmap)",
+        "url": "https://vidsrc.mov/"
+      },
+      {
+        "title": "SuperEmbed \u2014 Movie/TV Streaming API (free, popup ad, 48h links)",
+        "url": "https://www.superembed.stream/movie-streaming-api.html"
+      },
+      {
+        "title": "Gogoanime2 API pricing (riimuru) on RapidAPI",
+        "url": "https://rapidapi.com/riimuru/api/gogoanime2/pricing"
+      },
+      {
+        "title": "AnimeAPI pricing (50 req/day free tier)",
+        "url": "https://animeapi.org/pricing/"
+      },
+      {
+        "title": "Popular Anime API \u2014 Zyla API Hub ($0.0324870/req overage)",
+        "url": "https://zylalabs.com/api-marketplace/anime+&+manga/popular+anime+api/2330"
+      },
+      {
+        "title": "ACE/MPA Target VivaTV, StreamTape & VidSrc: A Peek Under the Hood (TorrentFreak)",
+        "url": "https://torrentfreak.com/ace-mpa-target-vivatv-streamtape-vidsrc-a-peek-under-the-hood-231028/"
+      },
+      {
+        "title": "ACE Shuts Down Fmovies & VidSrc.to \u2014 'largest takedown in history' (Hollywood Reporter)",
+        "url": "https://www.hollywoodreporter.com/business/business-news/fmovies-taken-down-international-studio-alliance-claims-victory-1235985558/"
+      },
+      {
+        "title": "ACE Shuts Down Major Anime Streaming App AnimePlay (CBR, Mar 2026)",
+        "url": "https://www.cbr.com/anime-play-app-ace-shutdown/"
+      },
+      {
+        "title": "GitHub Nukes 900+ Anime Piracy Repos (aniwatch, MegacloudKeys) \u2014 Crunchyroll/VIZ (TorrentFreak, Mar 2026)",
+        "url": "https://torrentfreak.com/github-nukes-900-anime-piracy-repos-and-forks-but-rejects-circumvention-claims/"
+      },
+      {
+        "title": "More Anime Streaming Sites Face Shutdown as HiAnime & 9anime Go Dark (CBR)",
+        "url": "https://www.cbr.com/anime-streaming-crackdown-ustr-vietnam/"
+      },
+      {
+        "title": "Linking to Copyrighted Materials \u2014 server test & contributory infringement (Digital Media Law Project)",
+        "url": "https://www.dmlp.org/legal-guide/linking-copyrighted-materials"
+      },
+      {
+        "title": "Ninth Circuit Confirms Embedding / server test (Miller Nash LLP)",
+        "url": "https://www.millernash.com/industry-news/ninth-circuit-confirms-embedding-remains-fair-use"
+      },
+      {
+        "title": "Sublicense Agreements \u2014 rights granted can't exceed underlying license (Bloomberg Law)",
+        "url": "https://www.bloomberglaw.com/external/document/XFG3T7IC000000/commercial-drafting-guide-sublicense-agreements-intellectual-pro"
+      },
+      {
+        "title": "Crunchyroll undocumented/unofficial API (no legit indie API)",
+        "url": "https://github.com/Crunchyroll-Plus/crunchyroll-docs"
+      },
+      {
+        "title": "Consumet docs \u2014 public API discontinued, self-host required",
+        "url": "https://docs.consumet.org/"
+      }
+    ]
+  },
+  {
+    "topic": "Is there ANY legitimate paid API/subscription to a licensed anime catalog an indie can re-stream?",
+    "answer": "No (effectively). There is no public, pay-to-access API, embed-for-resale tier, or off-the-shelf subscription that lets an indie legally re-stream a licensed anime catalog (sub+dub) without doing real per-title licensing themselves. Crunchyroll, HIDIVE, Netflix, and Bilibili have NO public developer API or \"pay to legally embed our streams\" program for resale. The closest legitimate things are: (1) free metadata-only APIs (AniList, Jikan/MyAnimeList, TMDB) which give you catalog data but ZERO video; and (2) official free FAST/AVOD embeds (e.g., Crunchyroll's own 24/7 FAST channel) which you can link/watch but cannot rebrand or wrap into your own player without a distribution deal. Direct licensing exists but is enterprise-grade: minimum guarantees of ~$5K\u2013$50K per catalog title up to $70K\u2013$400K PER EPISODE for simulcasts, gated by production committees that rarely deal with newcomers. For a true indie with no capital and no existing audience, legally paying-to-stream a catalog is essentially impossible.",
+    "overview": "The developer's premise \u2014 \"pay the external video hosts or buy a paid API to get playable anime streams legally\" \u2014 does not map to how anime distribution works. The video hosts/streaming services (Crunchyroll, HIDIVE, Netflix, Bilibili) are LICENSEES, not licensors; they bought exclusive/non-exclusive rights from Japanese rights holders and are contractually forbidden from re-licensing or letting third parties embed their player for resale. None offers a public, paid, embeddable API. The only entities that can sell you the right to stream anime are the Japanese rights holders / production committees and their distribution agents (e.g., the 300+ B2B anime distributors mapped by aggregators like Vitrina). That is a B2B, contract-by-contract, capital-intensive process: you pay a per-title or per-episode Minimum Guarantee (MG) plus a royalty (15\u201330% of net revenue), commit to a multi-month/year payment schedule, deliver your own clean masters + subs, and pass a vetting bar (track record of paying on time, real audience). Catalog titles run ~$5K\u2013$50K MG each; simulcasts run $70K\u2013$400K per episode. Production-committee membership (which lowers your cost) is essentially closed to foreign newcomers. So the honest tiers are: (a) LEGAL FOR AN INDIE = metadata APIs (no video) + official free FAST/YouTube embeds you don't repackage + eventually doing your own micro-licensing of cheap catalog titles if you have low-five-figures per title and can convince a distributor; (b) GREY-MARKET \"paid APIs\" (Zyla/RapidApi/GitHub anime-stream APIs, gogo/consumet-style wrappers) that DO exist and are cheap but scrape Crunchyroll/gogoanime under the hood \u2014 paying for them does NOT make them legal, you are still distributing infringing streams; (c) DOES NOT EXIST = a turnkey \"Crunchyroll-as-a-backend\" embed/resale API. The realistic indie path is FAST/AVOD distribution (you still need the rights), or building a legal product around metadata + linking out to official free sources.",
+    "options": [
+      {
+        "name": "Crunchyroll / HIDIVE / Netflix / Bilibili public developer API for resale",
+        "whatYouGet": "Nothing usable. No public API. Crunchyroll's API is undocumented/internal (only unofficial reverse-engineered wrappers exist). Netflix shut down its public API in 2014. HIDIVE has no developer/embed program. Bilibili exposes some public data endpoints but not a licensed-resale video API. None permits embedding their player into your site for resale.",
+        "legality": "Using their internal/undocumented APIs or scraping their players violates their Terms of Use and circumvents DRM (DMCA anti-circumvention). Not a legal path.",
+        "cost": "N/A \u2014 not offered to indies at any price."
+      },
+      {
+        "name": "Direct anime licensing from rights holders / B2B distributors (Vitrina-mapped, ~300+ distributors)",
+        "whatYouGet": "Actual legal rights to stream specific titles (sub and/or dub), per territory, per window. You source your own masters + subs/dubs and host or CDN them yourself. This is the ONLY truly legal way to build a licensed catalog.",
+        "legality": "Fully legal \u2014 this is how Crunchyroll/HIDIVE themselves operate.",
+        "cost": "Catalog/older titles: ~$5K\u2013$50K Minimum Guarantee each (non-exclusive US window), some cheap titles under ~$1K\u2013$2K/episode. Mid-tier active titles: $50K\u2013$150K/season ($70K\u2013$150K MG range). Simulcasts: lower-five-figures up to $400K PER EPISODE; $250K/ep roughly covers a full Japanese production budget. Premium franchise: $500K+ per territory into seven figures. Plus 15\u201330% royalty on net revenue once MG clears. Payments scheduled over 12\u201324 months (up to ~10 years for big deals)."
+      },
+      {
+        "name": "FAST / AVOD distribution (Pluto TV, Roku Channel, Samsung TV Plus, Tubi, Vizio WatchFree+) via aggregators (Amagi, Wurl, Frequency)",
+        "whatYouGet": "A path to distribute anime on free ad-supported platforms with revenue share \u2014 BUT you must already hold full distribution rights to the content. The aggregator handles playout/CDN/ads, not rights. You still need ~40\u2013100 hours of cleared, ad-clean, watermark-free masters with subs.",
+        "legality": "Legal IF you hold the rights. The platform/aggregator does not grant you anime rights.",
+        "cost": "Tech/aggregator entry can be under ~$10K/month; FAST ad revenue split typically ~50/50 after platform costs, no MG. But content rights cost is separate and on top (see licensing row). Tier-1 platforms (Pluto/Roku/Samsung) are hard to get channel slots on."
+      },
+      {
+        "name": "Official free FAST/YouTube embeds (e.g., Crunchyroll's own 24/7 FAST channel; official anime YouTube uploads like Muse Asia, Ani-One)",
+        "whatYouGet": "You can LINK to or watch official free streams, and some YouTube channels allow standard YouTube iframe embeds. This is a legit way to surface free official anime in a discovery/aggregator product.",
+        "legality": "Linking is legal. Standard YouTube embeds are allowed by YouTube ToS for the publishers that enable embedding. But you cannot strip ads, rebrand, or wrap Crunchyroll's FAST player into your own player \u2014 that breaks their ToS.",
+        "cost": "Free, but you do not control catalog, ads, availability, or branding; titles rotate and disappear."
+      },
+      {
+        "name": "Free metadata-only APIs: AniList (GraphQL), Jikan (MyAnimeList REST), TMDB",
+        "whatYouGet": "Rich catalog metadata \u2014 titles, art, synopses, episodes, airing schedules, studios, characters, ratings. ZERO video streams. Legal foundation for a discovery/database site or the catalog layer of a player.",
+        "legality": "Legal for metadata use (check each ToS; some restrict heavy commercial use, attribution often required). Note: public Jikan API is scheduled to shut down Oct 1, 2026 (brownout from Sep 1) \u2014 self-host or use AniList.",
+        "cost": "Free (AniList ~90 req/min; Jikan rate-limited). No video, so does not solve the core need at all."
+      },
+      {
+        "name": "Grey-market 'paid' anime stream APIs (Zyla API Hub / RapidAPI 'anime stream' listings, Consumet/gogoanime-style wrappers, GitHub anime-api scrapers)",
+        "whatYouGet": "Cheap or free JSON endpoints returning playable stream/embed links. These DO exist and are easy to wire up \u2014 which is exactly what makes them tempting.",
+        "legality": "Illegal in substance. Under the hood they scrape Crunchyroll/gogoanime/etc. and serve pirated streams. Paying a marketplace fee does NOT launder the infringement; you become the public-facing distributor of infringing content and the DMCA/anti-circumvention target. This is the same legal risk as the scraping/decryption the developer is trying to avoid \u2014 just outsourced.",
+        "cost": "$0\u2013$50/month typical marketplace pricing \u2014 cheap precisely because no one paid for rights."
+      }
+    ],
+    "pricing": [
+      "Catalog/older non-exclusive US streaming titles: Minimum Guarantee ~$5,000\u2013$50,000 each; cheapest catalog under ~$1,000\u2013$2,000 per episode (Anime News Network; Vitrina)",
+      "Mid-tier active titles: ~$50,000\u2013$150,000 per season / MG; ANN cites $70,000\u2013$150,000 for mid-tier first-run",
+      "Simulcast rights: lower-five-figures per episode up to ~$400,000 per episode for top-tier; ~$250,000/ep roughly equals a full Japanese production budget (ANN, 2021, still cited as the market floor 'long gone are $500/ep days')",
+      "Premium franchise (MAPPA/Ufotable-tier global demand): $500,000+ per territory, into seven figures for exclusive global packages (Vitrina)",
+      "Royalty after MG clears: typically 15\u201330% of net streaming revenue attributed to the title (Vitrina)",
+      "Simulcast premium: ~30\u201350% above delayed-license MG for mid-tier; can exceed 100% for hot seasonal titles (Vitrina)",
+      "FAST channel ad revenue split: ~50/50 between platform and rights holder after platform operating costs, no minimum guarantee (Vitrina)",
+      "FAST tech/aggregator entry: a content owner can enter FAST for under ~$10,000/month via a tech vendor; needs 40\u2013100 hours minimum content (StreamTV Insider / Amagi)",
+      "Metadata APIs (AniList, Jikan, TMDB): free",
+      "Grey-market 'anime stream' APIs (Zyla/RapidAPI): ~$0\u2013$50/month \u2014 cheap because they scrape, not license"
+    ],
+    "gotchas": [
+      "The streaming services are licensees, not licensors \u2014 Crunchyroll/HIDIVE/Netflix cannot and will not sub-license or let you embed their player for resale; their ToS prohibit redistribution/rebroadcast/commercial exploitation.",
+      "'Paying for an anime stream API' on Zyla/RapidAPI/GitHub does NOT make it legal \u2014 those endpoints scrape Crunchyroll/gogoanime. You'd be paying a middleman to do exactly the scraping you wanted to avoid, while becoming the public DMCA target yourself.",
+      "Direct licensing requires you to source and host your own masters, subs, and dubs \u2014 the rights holder gives you the RIGHT, not the files. The developer says they have no source for the files, so even a successful license leaves them with nothing to play.",
+      "Dubs are a separate, more expensive rights/cost layer than subs; English dub rights and dub production add significant cost on top of the streaming MG.",
+      "Production committees rarely invite foreign newcomers; committee membership (which lowers license cost) is effectively closed to indies, so you pay the full non-member MG.",
+      "Licensors won't engage small players lacking a track record of paying on time and a real audience \u2014 capital alone may not get you in the door for desirable titles.",
+      "Sublicensing of first-run/simulcast content essentially never happens until the master licensee has already made its money (years later), so you can't legally get new/popular titles as an indie.",
+      "FAST is the most realistic legal route, but you STILL need the underlying rights first \u2014 Amagi/Wurl/Pluto/Roku provide distribution plumbing, not anime rights. Tier-1 FAST slots are hard to win.",
+      "Jikan's public API is scheduled to shut down Oct 1, 2026 (brownout Sep 1, 2026) \u2014 don't build a metadata layer that depends on the hosted Jikan; self-host or use AniList.",
+      "Even free official embeds (Crunchyroll FAST channel, Muse Asia/Ani-One YouTube) cannot be rebranded, ad-stripped, or wrapped in your own player; you only get standard linking/iframe embeds at the publisher's discretion."
+    ],
+    "verification": {
+      "refuted": [
+        {
+          "claim": "Jikan shutdown date (Oct 1, 2026 / brownout Sep 1, 2026) is reported via search summary; verify on jikan.moe before relying on it.",
+          "status": "refuted",
+          "note": "The specific 2026 shutdown is not supported and appears to be a misattribution. The Sep 1 brownout / Oct 1 discontinuation dates that surface in search are the Jikan v3 deprecation timeline from 2022 (Sep 1 2022 brownout, Oct 1 2022 discontinuation), not 2026. No announcement of a 2026 Jikan shutdown was found; the v4 REST API is actively maintained (latest release v4.2.4, Nov 2024) with ongoing issues/PRs and no shutdown notice on GitHub. The claim's own caveat ('verify before relying on it') is wise, but as stated the 2026 dates are wrong. jikan.moe itself returned empty/blank on fetch, so the live page could not be read directly.",
+          "sources": [
+            "https://github.com/jikan-me/jikan-rest",
+            "https://docs.api.jikan.moe/"
+          ]
+        }
+      ],
+      "corrections": [
+        "Claim 2: The '300+ anime distributors' figure is not supported by Vitrina's own materials, which cite '140,000+ entertainment companies', '500+ streaming platforms', and '5 million+ professionals' instead. Drop or re-source the '300+ distributors' number - it appears unsupported.",
+        "Claim 7: The 'Oct 1, 2026 / brownout Sep 1, 2026' Jikan shutdown is a misattribution of the 2022 Jikan v3 deprecation (Sep 1 2022 brownout, Oct 1 2022 discontinuation). There is no evidence of a 2026 Jikan shutdown; v4 is actively maintained. Remove the 2026 dates.",
+        "Claim 4: Current trade-press guidance for minimum FAST content is ~50-100 hours (often 80-100, with 200+ recommended), not 40. The '40 hours' lower bound understates current vendor guidance; use '~50-100 hours' if a number is needed.",
+        "Claim 3 / FAST splits: While 50/50 is a stated norm, sources describe 60/40 in favor of the CHANNEL as the more common split; presenting 50/50 as the single norm slightly understates the channel's typical share."
+      ],
+      "additionalFindings": [
+        "The overview's core premise is well-supported: Crunchyroll has no official documented public API and no embed/resale program; available 'Crunchyroll APIs' are reverse-engineered (e.g., Crunchyroll-Plus/crunchyroll-docs derived from the Android APK). Crunchyroll's ToS explicitly bar resale/transfer of subscriptions and state content is for personal/household use, not resale. This confirms the 'no turnkey Crunchyroll-as-a-backend resale API exists' tier.",
+        "The grey-market tier is corroborated: Consumet, gogoanime-api (riimuru), Anify etc. are explicitly scraping/piracy-aggregation wrappers ('capable of supporting any piracy site'), subject to DMCA takedowns and breakage when source sites change. Paying a RapidAPI/Zyla reseller for these does not confer a license - the streams remain infringing, matching the overview.",
+        "ANN 2021 catalog figure is 'a couple thousand / under $1,000 per episode', while Vitrina frames catalog as a $5K-$50K MG per TITLE (not per episode). These are not contradictory - per-episode vs per-title - but anyone quoting them should keep the unit (episode vs title/season) explicit to avoid a 10-50x error.",
+        "AniList historically has shown a degraded rate limit (reduced to ~30 req/min during periods) below the documented 90/min burst; since the live docs returned 403, the current effective limit could not be confirmed and may differ from ~90.",
+        "jikan.moe homepage fetch returned blank/empty (likely JS-rendered or bot-blocked), so the live site could not be read; the GitHub repo and docs.api.jikan.moe were the usable authoritative sources and showed no 2026 shutdown."
+      ]
+    },
+    "sources": [
+      {
+        "title": "How Much Does It Cost to License Anime Series? \u2014 Anime News Network",
+        "url": "https://www.animenewsnetwork.com/feature/2021-08-02/how-much-does-it-cost-to-license-anime-series/.175579"
+      },
+      {
+        "title": "How Anime Licensing Actually Works: A Complete Breakdown \u2014 Vitrina",
+        "url": "https://vitrina.ai/blog/how-does-anime-licensing-work/"
+      },
+      {
+        "title": "The Real Cost Of Licensing Anime For Streaming \u2014 Vitrina",
+        "url": "https://vitrina.ai/blog/how-much-does-it-cost-to-license-anime-for-streaming/"
+      },
+      {
+        "title": "Anime Licensing Guide For Streamers & Buyers \u2014 Vitrina",
+        "url": "https://vitrina.ai/blog/anime-licensing-guide/"
+      },
+      {
+        "title": "Is there any API for Netflix? \u2014 DesignGurus",
+        "url": "https://www.designgurus.io/answers/detail/is-there-any-api-for-netflix"
+      },
+      {
+        "title": "Netflix Will Shut Down Public API Support For Third-Party Developers \u2014 TechCrunch",
+        "url": "https://techcrunch.com/2014/06/13/netflix-api-shutdown/"
+      },
+      {
+        "title": "Crunchyroll-Plus/crunchyroll-docs (unofficial reverse-engineered API docs) \u2014 GitHub",
+        "url": "https://github.com/Crunchyroll-Plus/crunchyroll-docs"
+      },
+      {
+        "title": "Crunchyroll Terms of Use",
+        "url": "https://www.crunchyroll.com/tos/"
+      },
+      {
+        "title": "Jikan \u2014 Unofficial MyAnimeList API",
+        "url": "https://jikan.moe/"
+      },
+      {
+        "title": "AniList API docs",
+        "url": "https://docs.anilist.co/"
+      },
+      {
+        "title": "What does it take to create and operate a FAST channel? \u2014 StreamTV Insider",
+        "url": "https://www.streamtvinsider.com/video/what-does-it-take-create-and-operate-fast-channel"
+      },
+      {
+        "title": "How to launch a FAST channel \u2014 Amagi",
+        "url": "https://www.amagi.com/blog/how-to-launch-fast-channel"
+      },
+      {
+        "title": "Global FAST Marketplace for Content Distribution (Amagi Connect)",
+        "url": "https://www.amagi.com/products/amagi-connect"
+      },
+      {
+        "title": "Crunchyroll Launches 24/7 Free Anime Channel \u2014 CBR",
+        "url": "https://www.cbr.com/crunchyroll-channel-anime-pluto-tv-launch/"
+      },
+      {
+        "title": "Watch Crunchyroll: Live TV Channel for Free \u2014 Pluto TV",
+        "url": "https://pluto.tv/us/live-tv/65652f7fc0fc88000883537a"
+      },
+      {
+        "title": "FAST Shakeup: Pluto TV drops most dedicated anime channels \u2014 I Miss Bionix",
+        "url": "https://imissbionix.wordpress.com/2026/01/12/fast-shakeup-pluto-tv-drops-all-but-two-anime-channels-while-crunchyroll-debuts/"
+      },
+      {
+        "title": "Best APIs tagged with Anime stream (grey-market scraper APIs) \u2014 Zyla API Hub",
+        "url": "https://www.zylalabs.com/api-marketplace/top-search/anime%20stream"
+      },
+      {
+        "title": "Anime_Scraper: unofficial APIs for anime streaming \u2014 GitHub",
+        "url": "https://github.com/Rawkush/Anime_Scraper"
+      }
+    ]
+  },
+  {
+    "topic": "Anime: pay vs scrape; multi-language sourcing",
+    "answer": "No legal paid API gives an indie playable anime streams; the services that do are scrapers, now collapsed in 2026.",
+    "overview": "EN dub came from HiAnime/AllAnime; HiAnime shut Mar 2026, aniwatch DMCA'd. Use video and subtitle adapters keyed by AniList ID and language.",
+    "options": [
+      {
+        "name": "Paid hosted scraper APIs",
+        "whatYouGet": "EN sub+dub, m3u8/iframe",
+        "cost": "Free to ~50/mo",
+        "legality": "Illegal grey, DMCA'd Mar 2026"
+      },
+      {
+        "name": "Direct licensing",
+        "whatYouGet": "Real rights, must host masters",
+        "cost": "70k-400k/ep",
+        "legality": "Legal, contradicts no-host"
+      },
+      {
+        "name": "White-label OTT + Crunchyroll affiliate",
+        "whatYouGet": "OTT infra no content; CR 5pct affiliate",
+        "cost": "OTT 1/mo+",
+        "legality": "Legal, you supply files"
+      },
+      {
+        "name": "Subtitles+metadata (Jimaku, OpenSubtitles, AniList)",
+        "whatYouGet": "srt/ass and metadata, no video",
+        "cost": "Free+VIP",
+        "legality": "Metadata legal, fansub grey"
+      }
+    ],
+    "pricing": [
+      "MG 70k-400k/ep; Crunchyroll 5pct affiliate; Jimaku/AniList free"
+    ],
+    "gotchas": [
+      "Pay-a-host services are resold scrapers; backend DMCA'd Mar 2026"
+    ],
+    "verification": {
+      "refuted": [
+        {
+          "claim": "Implicit framing that scraping unlicensed anime sources is a viable/legit sourcing strategy",
+          "status": "refuted",
+          "note": "On the legality angle the orchestrator asked me to scrutinize: sourcing dub/sub from HiAnime/AllAnime/aniwatch-type sites is NOT legit licensing \u2014 it is copyright infringement. As of 2026 enforcement is intensifying (Crunchyroll/VIZ/Aniplex/MPA-ACE actively litigating; statutory damages $750\u2013$30,000/work, up to $150,000 for willful; domain seizures via court orders). Bypassing paywalls/DRM also implicates DMCA 1201 anti-circumvention (the exact basis used against aniwatch). The only genuinely 'legit/licensed' multilang sub-dub sourcing is via licensed services (Crunchyroll, HIDIVE) under their terms \u2014 which do NOT permit redistribution/scraping. So 'paying for hosted scraper APIs' buys access to infringing content, not a license.",
+          "sources": [
+            "https://www.vondranlegal.com/anime-copyright-crackdown-2026-what-creators-fans-and-influencers-need-to-know",
+            "https://www.cbr.com/anime-streaming-legal-options-crunchyroll-hidive/",
+            "https://www.cbr.com/crunchyroll-anime-streaming-hi-anime-github-tool-takedown/"
+          ]
+        }
+      ],
+      "corrections": [
+        "'Likely dead' is too absolute: AllAnime (allanime.to) was still reporting operational (HTTP 200, no elevated outage reports) as of June 2026. The accurate statement is that the hosted-scraper ecosystem is severely degraded and unreliable, not uniformly dead.",
+        "Consumet's situation should be stated precisely: the PUBLIC hosted Consumet API is offline; the open-source project still exists and must be self-hosted. Don't conflate 'Consumet dead' with 'self-hosting still possible.'",
+        "The aniwatch takedown was specifically a DMCA Section 1201 ANTI-CIRCUMVENTION claim (plus other copyright claims GitHub honored), filed by Remove Your Media LLC for Crunchyroll AND VIZ Media \u2014 not a generic/standard DMCA takedown. Worth stating accurately because it affects whether self-hosted forks are safe (they are not \u2014 circumvention liability attaches to the code itself).",
+        "Frame the 'pay for hosted host/API vs scrape vs license' tradeoff honestly: paying a RapidAPI-style anime scraper API is still consuming infringing content (civil + DMCA 1201 exposure); it is NOT equivalent to licensing. The only legal sourcing is licensed services (Crunchyroll/HIDIVE), which forbid scraping/redistribution. There is no cheap 'pay-the-host = legit' middle path."
+      ],
+      "additionalFindings": [
+        "Broader takedown wave in 2026 goes well beyond HiAnime: 9anime, AnimeKai (domains seized Oct 2025 via New Delhi court order targeting 200+ sites), plus non-anime piracy sites (Fmovies, Myflixer, etc.) went dark in early/mid 2026. Treat ANY scraper-fed source as high-churn and likely to break without notice.",
+        "Enforcement is being driven by Remove Your Media LLC, the MPA, ACE, Crunchyroll, VIZ, Aniplex, and Shueisha (successful DMCA action Oct 2025). This is a coordinated, escalating campaign \u2014 not isolated incidents \u2014 so an architecture that depends on a single scraper source is fragile.",
+        "DMCA 1201 anti-circumvention is the key legal lever being used against the CODE itself (not just the sites). This means self-hosting a forked scraper (e.g., aniwatch/Consumet) does not insulate you \u2014 distributing/running circumvention code carries its own liability.",
+        "Statutory damages for willful infringement reach $150,000 per work (US), with $750\u2013$30,000/work baseline \u2014 material risk for any commercial product sourcing from these adapters.",
+        "AniList ID as a stable cross-source key is well-supported: AniList is repeatedly recommended as the portable identifier/tracker that survives individual site shutdowns, which validates the design choice of keying adapters to AniList IDs (the IDENTIFIER is fine; the SOURCES it points to are the legal problem)."
+      ]
+    },
+    "sources": [
+      {
+        "title": "TorrentFreak takedown",
+        "url": "https://torrentfreak.com/github-nukes-900-anime-piracy-repos-and-forks-but-rejects-circumvention-claims/"
+      }
+    ]
+  }
+]

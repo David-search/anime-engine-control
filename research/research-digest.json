@@ -1,0 +1,1520 @@
+[
+  {
+    "layer": "Metadata / Catalog Layer",
+    "overview": "Free anime streaming sites separate \"what exists\" (catalog metadata) from \"where to watch it\" (provider-specific episode slugs/streams). The catalog layer is almost never original: sites and their open-source clones pull rich, clean metadata (titles, synopses, cover/banner art, genres, episode counts, airing schedules, relations, recommendations) from third-party trackers \u2014 primarily AniList's public GraphQL API (graphql.anilist.co) and MyAnimeList via the unofficial Jikan REST API (api.jikan.moe/v4), supplemented by Kitsu (JSON:API), AniDB, TMDB and AnimeSchedule.net for art, fanart and airing timetables. The hard problem is the ID-mapping/correlation problem: an AniList/MAL numeric id must be resolved to a particular provider's episode slug (e.g. hianime's anime-slug-112?ep=3303, gogoanime's one-piece-episode-1071, animepahe's session id). This is solved either by a precomputed community mapping database (MALSync's MAL-Sync-Backup repo and its api.malsync.moe service) or by on-the-fly title-similarity matching (consumet's AniList meta provider, Eltik's AniSync/Anify) that searches each provider, then matches results back to AniList by normalized title + format + year. Catalog and mapping data are aggressively cached in Redis (~1h to 24h) backed by Postgres/SQLite, and \"trending/popular/recently updated\" rows are built either by passing through AniList sort enums (TRENDING_DESC, POPULARITY_DESC) or by scraping the streaming site's own home page (spotlight/top-10/latest-episode blocks).",
+    "components": [
+      {
+        "name": "AniList GraphQL API (graphql.anilist.co)",
+        "role": "Primary catalog source. Single POST GraphQL endpoint, no auth needed for public read queries, returns Media with id, idMal, title{romaji/english/native}, coverImage, bannerImage, episodes, genres, status, season, seasonYear, nextAiringEpisode{airingAt,timeUntilAiring,episode}, relations, recommendations, externalLinks, streamingEpisodes. Page query drives trending/popular rows.",
+        "examples": [
+          "Page(page,perPage){media(sort:TRENDING_DESC,type:ANIME){id idMal title{romaji english} coverImage{large} bannerImage}}",
+          "sort:[POPULARITY_DESC] for 'most popular' rows",
+          "Media(id:21){idMal nextAiringEpisode{airingAt episode} relations{edges{relationType node{id}}}}"
+        ]
+      },
+      {
+        "name": "Jikan API (api.jikan.moe/v4)",
+        "role": "Unofficial REST proxy over MyAnimeList; used when sites prefer MAL ids/scores. /anime/{id}, /anime?q=, /seasons/now, /schedules. No API key, MongoDB-backed cache.",
+        "examples": [
+          "GET https://api.jikan.moe/v4/anime/21",
+          "GET https://api.jikan.moe/v4/anime?q=naruto",
+          "GET https://api.jikan.moe/v4/seasons/now"
+        ]
+      },
+      {
+        "name": "Kitsu API (kitsu.io / api-docs.kitsu)",
+        "role": "JSON:API metadata source (anime, episodes, libraries). Used as supplementary/fallback meta provider for descriptions and posters. Requires Accept/Content-Type application/vnd.api+json.",
+        "examples": [
+          "GET /api/edge/anime?filter[text]=...",
+          "Accept: application/vnd.api+json"
+        ]
+      },
+      {
+        "name": "TMDB + AniDB",
+        "role": "TMDB supplies high-quality fanart/backdrops/season artwork AniList lacks and links anime to TV/movie ids; AniDB provides the canonical episode numbering used to compute season/episode offsets in mapping repos.",
+        "examples": [
+          "TMDB themoviedb_id used in Fribb/anime-lists",
+          "AniDB anidb_id is the merge key in anime-lists and appears in malsync responses (anidbId field)"
+        ]
+      },
+      {
+        "name": "AnimeSchedule.net API v3",
+        "role": "Weekly airing timetable source; airType=raw|sub|dub|all. Powers 'estimated schedule' / countdown rows. Uses Bearer application token + OAuth2 (PKCE) for private endpoints.",
+        "examples": [
+          "GET /api/v3/timetables/{airType}",
+          "Authorization: Bearer <app-token>"
+        ]
+      },
+      {
+        "name": "MALSync MAL-Sync-Backup + api.malsync.moe",
+        "role": "Precomputed cross-site mapping database. Per-MAL-id JSON maps to Sites{Provider:{identifier,url,malId,aniId,page,...}}. This is consumet's cross-provider mapping backbone ('cross-provider content mapping via MalSync API').",
+        "examples": [
+          "GET https://api.malsync.moe/mal/anime/21 -> Sites{animepahe:{identifier:'4',url:'animepahe.com/a/4'},KickAssAnime:{...},Netflix:{...}}",
+          "Top-level fields: id,type,title,url,total,image,anidbId,Sites"
+        ]
+      },
+      {
+        "name": "Fribb/anime-lists",
+        "role": "Static JSON ID-mapping dataset keyed on anidb_id merging mal_id, anilist_id, kitsu_id, tvdb_id, themoviedb_id, imdb_id, anime-planet/anisearch/ANN/livechart/simkl ids, plus season info and episode offsets. Ships anime-list-full.json, -mini, reduced variants and index files.",
+        "examples": [
+          "anime-list-full.json entry with mal_id+anilist_id+anidb_id+thetvdb_id",
+          "indices/ folder for O(1) id lookup by source"
+        ]
+      },
+      {
+        "name": "consumet.ts AniList meta provider",
+        "role": "Library/REST that wraps a metadata source (AniList) and a content provider (zoro/gogoanime/animepahe/9anime/etc), returning AniList metadata with provider-resolved episode ids attached. Resolves provider via MalSync API and/or title search.",
+        "examples": [
+          "meta/anilist/info/{id}?provider=zoro",
+          "meta/anilist/watch/{episodeId}",
+          "meta/anilist/trending, /popular"
+        ]
+      },
+      {
+        "name": "aniwatch-api (ghoshRitesh12) / aniwatch npm package",
+        "role": "Cheerio+Axios scraper of hianime.to exposing /api/v2/hianime/* endpoints; builds catalog rows by parsing the streaming site's own HTML/AJAX rather than a tracker.",
+        "examples": [
+          "GET /api/v2/hianime/home -> spotlightAnimes, trendingAnimes, latestEpisodeAnimes, top10Animes{today,week,month}, topAiringAnimes, topUpcomingAnimes, genres",
+          "GET /api/v2/hianime/anime/{id}/episodes -> {totalEpisodes, episodes:[{episodeId,number,title,isFiller}]}",
+          "GET /api/v2/hianime/schedule?date=YYYY-MM-DD&tzOffset=mins"
+        ]
+      },
+      {
+        "name": "AniSync / Anify (Eltik)",
+        "role": "Self-hosted mapping engines that do title-similarity matching instead of relying on MALSync; Postgres(pg_trgm)+Redis, seeded by crawling AniList's sitemap.",
+        "examples": [
+          "AniList sitemap https://anilist.co/sitemap/anime-0.xml as seed",
+          "PostgreSQL pg_trgm + custom most_similar(text,text[]) SQL function",
+          "Anify: 'custom mappings without external APIs like Simkl and MALSync'"
+        ]
+      }
+    ],
+    "howItWorks": [
+      "Seed the catalog from a tracker: query AniList GraphQL (Page->media with TRENDING_DESC / POPULARITY_DESC) or Jikan (/seasons/now) to get the universe of anime with id, idMal, titles (romaji/english/native + synonyms), coverImage, bannerImage, genres, episodes, status, season, nextAiringEpisode.",
+      "Build home-page rows two ways: (a) tracker-driven \u2014 proxy AniList sort enums for trending/popular and nextAiringEpisode for 'airing/schedule'; or (b) scrape-driven \u2014 parse the streaming site's own home HTML for spotlight, top-10 (today/week/month), latest-episode and top-airing blocks (this is what aniwatch-api /api/v2/hianime/home does).",
+      "Resolve metadata id -> provider: option A (lookup) call api.malsync.moe/mal/anime/{malId} (or /anilist/anime/{id}); read Sites{Provider:{identifier,url}} to get the provider slug directly. option B (search+match) call the provider's own search with each AniList title/synonym, then match each result back to AniList by normalized title similarity, filtering by format (TV/MOVIE/OVA) and year.",
+      "Title-matching algorithm (consumet/AniSync): sanitize/slugify titles, run a string-similarity (Dice coefficient via findBestMatch / Levenshtein), filter candidates with rating > ~0.6, keep the best match; reject if AniList format or startDate.year disagree. AniSync seeds its DB by crawling anilist.co/sitemap/anime-*.xml.",
+      "Fetch the provider episode list once a slug is known: for hianime/zoro hit GET https://hianime.to/ajax/v2/episode/list/{dataId} with header X-Requested-With: XMLHttpRequest; parse the returned HTML with Cheerio reading data-id / data-number / title / filler attributes into [{episodeId, number, title, isFiller}].",
+      "Construct the canonical episodeId: hianime/zoro uses anime-slug-{dataId}?ep={episodeId} (e.g. attack-on-titan-112?ep=3303); gogoanime uses {slug}-episode-{n}; animepahe uses a per-anime session + per-episode session id. This episodeId is the join key passed to the streaming/extractor layer.",
+      "Compute episode offsets / relations for multi-season titles using AniDB numbering from Fribb/anime-lists (episode_offset) so that an AniList 'season 2' maps onto the right provider episode range; relations/recommendations come straight from AniList edges.",
+      "Cache everything: catalog + mappings stored in Redis (typically ~1h, up to 24h for Jikan) backed by Postgres/SQLite; on cache miss the mapper does the search-and-match flow then persists the resolved mapping so future requests are O(1)."
+    ],
+    "keyRepos": [
+      {
+        "name": "consumet/consumet.ts",
+        "url": "https://github.com/consumet/consumet.ts",
+        "whatItProvides": "TypeScript library with AniList/MAL meta providers + content providers (Zoro, Gogoanime, AnimePahe, 9anime, etc). Meta provider attaches provider-resolved episode ids to AniList metadata and uses the MalSync API for cross-provider mapping. (Repo is DMCA-restricted on GitHub; docs at docs.consumet.org.)"
+      },
+      {
+        "name": "ghoshRitesh12/aniwatch-api",
+        "url": "https://github.com/ghoshRitesh12/aniwatch-api",
+        "whatItProvides": "RESTful scraper of hianime.to. /api/v2/hianime/home builds spotlight/trending/top10/latest/top-airing rows; /anime/{id} returns info incl. malId/anilistId; /anime/{id}/episodes returns episodeId list with isFiller; /schedule, /search, /search/suggestion, /category, /genre."
+      },
+      {
+        "name": "ghoshRitesh12/aniwatch",
+        "url": "https://github.com/ghoshRitesh12/aniwatch",
+        "whatItProvides": "The underlying npm scraper package (Cheerio + Axios) that aniwatch-api wraps; exposes getHomePage, getInfo, getEpisodes, getEpisodeSources, getEstimatedSchedule etc."
+      },
+      {
+        "name": "MALSync/MAL-Sync-Backup",
+        "url": "https://github.com/MALSync/MAL-Sync-Backup",
+        "whatItProvides": "Community-maintained per-id JSON mapping files (data/myanimelist/anime/{id}.json) mapping MAL/AniList ids to streaming provider slugs/urls (Aniwatch/Zoro, 9anime, Gogoanime, animepahe, KickAssAnime, official sites)."
+      },
+      {
+        "name": "api.malsync.moe (MALSync)",
+        "url": "https://api.malsync.moe/mal/anime/21",
+        "whatItProvides": "Live JSON service returning {id,title,url,image,anidbId,Sites{Provider:{identifier,url,malId,aniId,page}}} \u2014 the runtime mapping endpoint consumet and others query."
+      },
+      {
+        "name": "Fribb/anime-lists",
+        "url": "https://github.com/Fribb/anime-lists",
+        "whatItProvides": "Static ID-mapping dataset (anime-list-full.json etc.) keyed on anidb_id, merging mal/anilist/kitsu/tvdb/tmdb/imdb/anime-planet/anisearch/ANN/livechart/simkl ids + season/episode-offset info + index files."
+      },
+      {
+        "name": "Eltik/AniSync",
+        "url": "https://github.com/Eltik/AniSync",
+        "whatItProvides": "Self-hosted mapper: searches each provider, matches to AniList by title similarity (findBestMatch/Dice, >0.6 filter, format+year check), stores in PostgreSQL 15 with pg_trgm + most_similar() and Redis cache; seeds via AniList sitemap crawl."
+      },
+      {
+        "name": "Eltik/Anify",
+        "url": "https://github.com/Eltik/Anify",
+        "whatItProvides": "Successor full-stack scraper/mapper using custom mappings (no Simkl/MALSync dependency), Redis caching (~1h), DB-backed; maps anime/manga/LN across providers and metadata sources."
+      },
+      {
+        "name": "MALSync/MALSync",
+        "url": "https://github.com/MALSync/MALSync",
+        "whatItProvides": "Browser extension integrating MAL/AniList/Kitsu/Simkl into streaming sites with auto episode tracking; the source of the page->tracker mapping conventions reused by scrapers."
+      }
+    ],
+    "technologies": [
+      "AniList GraphQL API (graphql.anilist.co)",
+      "Jikan REST API v4 (MyAnimeList proxy)",
+      "Kitsu JSON:API",
+      "AniDB",
+      "TMDB API",
+      "AnimeSchedule.net API v3",
+      "GraphQL (POST queries, sort enums TRENDING_DESC/POPULARITY_DESC)",
+      "Node.js / TypeScript",
+      "Cheerio (HTML parsing)",
+      "Axios / fetch",
+      "string-similarity (Dice coefficient, findBestMatch) / Levenshtein",
+      "PostgreSQL 15 + pg_trgm extension",
+      "Redis (cache layer)",
+      "SQLite (config/lightweight cache)",
+      "MongoDB (Jikan caching)",
+      "XML sitemaps (AniList crawl seed)",
+      "JSON:API + application/vnd.api+json",
+      "X-Requested-With: XMLHttpRequest AJAX scraping"
+    ],
+    "gotchas": [
+      "The AniList<->provider mapping is the core hard problem: there is no shared id between trackers and streaming sites, so you must either rely on a community mapping (MALSync) that can be stale/incomplete, or do fuzzy title matching that produces wrong matches for sequels, OVAs, recaps, split-cours, and differently-romanized titles.",
+      "Title matching breaks on season/cour boundaries: a single AniList 'Season 2' entry may map to a provider's continuous episode numbering; you need AniDB episode offsets (Fribb/anime-lists) to align them, otherwise episode N points to the wrong video.",
+      "MALSync's live data has degraded for the high-profile pirate providers: querying api.malsync.moe now frequently returns animepahe/KickAssAnime/AnimeKAI/official sites but NOT a 'Zoro'/'Aniwatch' key for many ids (provider renames + DMCA pressure), so a mapping pipeline that hard-codes the 'Zoro' key will silently get null.",
+      "Provider episodeId formats are all different and load-bearing as join keys: hianime anime-slug-{dataId}?ep={epId}, gogoanime {slug}-episode-{n}, animepahe needs a per-anime session AND per-episode session; you cannot construct them blindly, you must fetch each provider's episode-list AJAX.",
+      "AniList rate limit is volatile and was degraded: nominal 90 req/min but it has run at 30 req/min for extended periods; exceeding returns 429 with Retry-After and a ~1-minute timeout \u2014 heavy caching (Redis) is mandatory, not optional.",
+      "Jikan adds latency and its own limits (60 req/min, 4s spacing recommended, no multi-IP), and serves stale-while-revalidate cache (you may get up-to-24h-old data); it also scrapes MAL so it can lag MAL itself.",
+      "The canonical scraper/mapper repos (consumet.ts, aniwatch-api, aniwatch, MALSync, MAL-Sync-Backup, hianime-mapper) are DMCA-restricted on GitHub and return HTTP 451/'Repository access blocked' to the API and raw endpoints \u2014 you must read them via mirrors, DeepWiki, or local clones.",
+      "'Trending/popular' built from scraping the streaming site's home HTML is brittle: selectors (deslide-item, film-poster data-id, ulclear) break whenever the site redesigns, which it does often to evade scrapers; tracker-driven rows (AniList sort) are far more stable but reflect tracker popularity, not your platform's traffic.",
+      "Cover/banner art from AniList/Kitsu is hotlinked from their CDNs (s4.anilist.co); for a real platform you should cache/rehost images to avoid breakage and ToS issues.",
+      "AnimeSchedule.net's useful endpoints now require an OAuth2/application Bearer token (PKCE flow), so the airing-schedule data is no longer freely anonymous as it once was."
+    ],
+    "verification": {
+      "refuted": [],
+      "confirmed": [
+        "AniList GraphQL rate limit: nominally 90 req/min, documented as currently degraded to 30 req/min; 429 + ~1 min timeout on exceed.",
+        "Jikan v4 rate limit ~60 req/min with recommended 4s spacing and 24h default cache (MongoDB-backed).",
+        "api.malsync.moe live (2026-06) for MAL ids 21/16498/11061/20/38000 returns Sites with animepahe, KickAssAnime/AnimeKAI, Crunchyroll/Hulu/Netflix but NO explicit Zoro/Aniwatch key.",
+        "Exact hianime AJAX paths (/ajax/v2/episode/list/{id}, /ajax/v2/episode/servers, /ajax/v2/episode/sources, /ajax/search/suggestion) are inferred from scraper docs/issues, not read from blocked source; hianime changes paths and domain (zoro.to->aniwatch.to->hianime.to/.nz/.vc) periodically.",
+        "Zoro/hianime episodeId format 'anime-slug-{dataId}?ep={episodeId}' (e.g. attack-on-titan-112?ep=3303) confirmed from hianime docs and consumet issues; numeric values/slug scheme can change.",
+        "consumet's AniList meta provider uses MalSync API for cross-provider mapping (per DeepWiki); internal function names findAnime/findSimilarTitles could not be verified against blocked source.",
+        "AniSync similarity: >0.6 filter, Dice via findBestMatch, format+year gating, and most_similar() pg_trgm SQL; from live README/source (master); project not fully optimized and superseded by Anify.",
+        "Fribb/anime-lists update cadence is unspecified in its README; staleness for very new seasonal anime is unknown."
+      ],
+      "corrections": [
+        "Claim 6 understates what is verifiable: the internal function names findAnime AND findSimilarTitles (plus findManga and the literal this.malSyncUrl='https://api.malsync.moe' and '/mal/manga/${malId}' call) ARE directly readable in the live published npm dist @consumet/extensions/dist/providers/meta/anilist.js. They are not unverifiable; only the GitHub src/ was transiently blocked (DMCA/rate limit). Recommend upgrading the wording from 'could not be verified' to 'verified via npm dist'.",
+        "Claim 3 phrasing 'KickAssAnime/AnimeKAI' should be split: in current live MALSync data KickAssAnime is the common key (One Piece, AoT, HxH, Demon Slayer) and AnimeKAI appears on Naruto (id 20). They are alternative provider keys per-entry, not interchangeable for the same entry.",
+        "Claim 4 lists hianime domains as 'hianime.to/.nz/.vc' but the current scraper package (aniwatch@2.27.9) actually targets hianimez.to (note the trailing 'z'). The exact live mirror domain has continued to churn; '.to/.nz/.vc' is approximate.",
+        "Claim 2's 'recommended 4s spacing' is a conservative client convention, not a documented hard rule; the documented limit is ~60/min (~1s minimum spacing) plus a few/second. Treat 4s as guidance. The exact current per-second cap could not be read from the live docs (docs.api.jikan.moe returned 403 to automated fetch).",
+        "Claim 7: AniSync is ARCHIVED (read-only since Aug 7 2024). The 'master branch reflects that commit only' caveat is correct, but readers should know the repo is frozen, not merely 'not fully optimized'."
+      ],
+      "additionalFindings": [
+        "MAJOR (postdates Jan 2026 cutoff): HiAnime reportedly went OFFLINE on March 13, 2026, displaying a goodbye message, after the zoro->aniwatch->hianime lineage. Multiple sources (Wikipedia, TorrentFreak ecosystem coverage, news writeups) report the shutdown. This materially affects the live-data framing: any claim phrased as 'hianime currently serves X' is now likely historical. By contrast, api.malsync.moe and the consumet/aniwatch npm packages were still live and queryable today (2026-06-21).",
+        "The aniwatch scraper GitHub repos (ghoshRitesh12/aniwatch and aniwatch-api) now return HTTP 451 'Unavailable For Legal Reasons' and the GitHub API returns null metadata, confirming a takedown/legal block. The npm dist (jsdelivr/unpkg) and READMEs remain accessible, which is why source-level claims about hianime internals are best verified via the published packages rather than GitHub.",
+        "MegaCloud (the hianime/zoro stream extractor, formerly rabbitstream/vidcloud/dokicloud) now uses JA3/JA4 TLS fingerprinting to detect non-browser clients per reverse-engineering writeups, which is why scraper-based source extraction (e.g. consumet/aniwatch) has become fragile and frequently breaks. The aniwatch bundle still references the 'ajax/e-1/getSources?id=' extractor endpoint.",
+        "consumet calls the PUBLIC MalSync REST endpoints (api.malsync.moe/mal/anime|manga/{id}) for mapping, distinct from the internal hianime /ajax/v2/episode/* paths. The context overview conflates 'mapping API paths' and 'site AJAX paths' in places; they are two different layers (MalSync mapping service vs. the streaming site's own AJAX).",
+        "AniSync's matching is two-stage: (1) GraphQL AniList search with format_in gating, then (2) year-equality and format-equality gates plus a Dice/findBestMatch > 0.6 filter on titles (including synonyms via a separate similarity() helper). The DB search path additionally uses pg_trgm similarity()/most_similar() server-side for fuzzy lookup before live mapping is triggered.",
+        "Eltik's successor project is Anify (anify.tv referenced from AniSync's About); AniSync explicitly invites contributions and is archived, consistent with 'being superseded'."
+      ]
+    },
+    "sources": [
+      {
+        "title": "consumet.ts anime guide (docs)",
+        "url": "https://docs.consumet.org/rest-api/Meta/anilist-anime/get-anime-info"
+      },
+      {
+        "title": "Consumet AniList popular endpoint docs",
+        "url": "https://docs.consumet.org/rest-api/Meta/anilist-anime/get-popular-anime"
+      },
+      {
+        "title": "consumet/consumet.ts (DeepWiki architecture index)",
+        "url": "https://deepwiki.com/consumet/consumet.ts"
+      },
+      {
+        "title": "ghoshRitesh12/aniwatch-api (GitHub)",
+        "url": "https://github.com/ghoshRitesh12/aniwatch-api"
+      },
+      {
+        "title": "ghoshRitesh12/aniwatch-api (DeepWiki)",
+        "url": "https://deepwiki.com/ghoshRitesh12/aniwatch-api"
+      },
+      {
+        "title": "Eltik/AniSync README (raw source, mapping algorithm + pg_trgm/most_similar + sitemap crawl)",
+        "url": "https://raw.githubusercontent.com/Eltik/AniSync/master/README.md"
+      },
+      {
+        "title": "Eltik/AniSync mappings.ts (similarity, format/year filtering)",
+        "url": "https://github.com/Eltik/AniSync"
+      },
+      {
+        "title": "Eltik/Anify (custom mappings, Redis caching)",
+        "url": "https://github.com/Eltik/Anify"
+      },
+      {
+        "title": "api.malsync.moe live mapping response (MAL id 21)",
+        "url": "https://api.malsync.moe/mal/anime/21"
+      },
+      {
+        "title": "MALSync/MAL-Sync-Backup (per-id mapping JSON)",
+        "url": "https://github.com/MALSync/MAL-Sync-Backup"
+      },
+      {
+        "title": "MALSync/MALSync",
+        "url": "https://github.com/MALSync/MALSync"
+      },
+      {
+        "title": "Fribb/anime-lists (ID mapping dataset)",
+        "url": "https://github.com/Fribb/anime-lists"
+      },
+      {
+        "title": "AniList GraphQL API docs (llms-full.txt: endpoint, sort enums, fields, auth)",
+        "url": "https://anilist.gitbook.io/anilist-apiv2-docs/llms-full.txt"
+      },
+      {
+        "title": "AniList Rate Limiting docs",
+        "url": "https://docs.anilist.co/guide/rate-limiting"
+      },
+      {
+        "title": "Jikan REST API v4 docs",
+        "url": "https://docs.api.jikan.moe/"
+      },
+      {
+        "title": "Kitsu API docs (JSON:API)",
+        "url": "https://kitsu.docs.apiary.io/"
+      },
+      {
+        "title": "AnimeSchedule.net API v3 documentation",
+        "url": "https://animeschedule.net/api/v3/documentation"
+      },
+      {
+        "title": "Hianime methods docs (episodeId format)",
+        "url": "https://hianime.mintlify.app/methods/episode-list-anime"
+      },
+      {
+        "title": "IrfanKhan66/hianime-mapper (AniList->hianime mapping API)",
+        "url": "https://github.com/IrfanKhan66/hianime-mapper"
+      },
+      {
+        "title": "yahyaMomin/hianime-API (DeepWiki)",
+        "url": "https://deepwiki.com/yahyaMomin/hianime-API"
+      }
+    ]
+  },
+  {
+    "layer": "Provider / scraper / extractor backend",
+    "overview": "This is the core \"translation layer\" that turns a request like (anime X, episode N, sub) into a directly playable HLS (.m3u8) URL plus subtitle tracks. It has two architectural styles that converged on the same hianime.to site (ex zoro.to / aniwatch.to, same operator): (1) Consumet, a monolithic Node/TypeScript library (consumet.ts, published on npm as @consumet/extensions) with a provider-per-site pattern (HiAnime/Zoro, AnimePahe, GoGoAnime, AnimeKai, KickassAnime) plus a hosted REST wrapper (api.consumet.org); and (2) ghoshRitesh12's aniwatch, a focused hianime-only scraper package (npm: aniwatch) wrapped by aniwatch-api (an Express/Hono REST service). Both follow the identical pipeline: scrape the site's HTML with Cheerio, hit the site's own internal AJAX endpoints (/ajax/v2/episode/servers and /ajax/v2/episode/sources) to discover \"servers\" and resolve an embed iframe URL, then run a dedicated extractor (MegaCloud / VidCloud / VidStreaming / RapidCloud / StreamSB) against that embed to pull and decrypt the source list. The hardest, most volatile part is the MegaCloud extractor, which must defeat AES encryption whose key is hidden behind obfuscated JS (formerly WASM). As of early-mid 2026 this whole open-source ecosystem was hit hard by DMCA / DMCA 1201 anti-circumvention takedowns: consumet.ts (2026-03-19) and aniwatch/aniwatch-api plus several hianime API clones and a key repo (2026-03-23, by Remove Your Media LLC for Crunchyroll/VIZ Media) are now GitHub 451-blocked, surviving mainly on npm and in forks.",
+    "components": [
+      {
+        "name": "consumet.ts / @consumet/extensions (HiAnime/Zoro provider)",
+        "role": "Node/TypeScript library; a provider class extending AnimeParser that implements search, fetchAnimeInfo, fetchEpisodeServers, fetchEpisodeSources against hianime.to using axios + cheerio. The provider was renamed from 'Zoro' to 'HiAnime' (file dist/providers/anime/hianime.js). This is the canonical reference implementation everyone forks.",
+        "examples": [
+          "baseUrl = 'https://hianime.to'",
+          "this.client.get(`${this.baseUrl}/ajax/v2/episode/servers?episodeId=${episodeId.split('?ep=')[1]}`)",
+          "new extractors_1.MegaCloud().extract(serverUrl)"
+        ]
+      },
+      {
+        "name": "api.consumet.org",
+        "role": "Hosted Express REST wrapper that exposes the consumet.ts providers over HTTP (e.g. /anime/zoro/{query}, /anime/zoro/info, /anime/zoro/watch). Lets a frontend consume scraping without bundling the library. The public hosted instance has historically been rate-limited/unreliable, pushing devs to self-host.",
+        "examples": [
+          "GET /anime/zoro/watch?episodeId=...&server=vidcloud",
+          "GET /anime/zoro/info?id=steinsgate-3"
+        ]
+      },
+      {
+        "name": "aniwatch (npm package by ghoshRitesh12)",
+        "role": "Hianime-only scraper. Exposes class HiAnime.Scraper with methods getHomePage, getAZList, getQtipInfo, getInfo, getAnimeSearchResults, getAnimeSearchSuggestion, getProducerAnimes, getGenreAnime, getAnimeCategory, getEstimatedSchedule, getEpisodes, getEpisodeServers, getEpisodeSources. Cheerio + axios. Uses env-overridable host: ANIWATCH_DOMAIN (default 'aniwatchtv.to').",
+        "examples": [
+          "const hianime = new HiAnime.Scraper();",
+          "hianime.getEpisodeServers('steinsgate-0-92?ep=2055')",
+          "hianime.getEpisodeSources('steinsgate-3?ep=230','hd-1','sub')"
+        ]
+      },
+      {
+        "name": "aniwatch-api",
+        "role": "Express/Hono REST service wrapping the aniwatch package, deployable via Docker on port 4000. Maps each scraper method to a /api/v2/hianime/* route.",
+        "examples": [
+          "GET /api/v2/hianime/search?q=...",
+          "GET /api/v2/hianime/anime/{animeId}/episodes",
+          "GET /api/v2/hianime/episode/servers?animeEpisodeId=steinsgate-3?ep=230",
+          "GET /api/v2/hianime/episode/sources?animeEpisodeId=...&server=hd-1&category=sub"
+        ]
+      },
+      {
+        "name": "MegaCloud extractor",
+        "role": "The actual stream-resolver for hianime's primary servers (Vidstreaming/HD-1 and Vidcloud/HD-2 are MegaCloud-family). Fetches the embed page, extracts a per-request client key, calls the getSources JSON endpoint, and AES-decrypts the encrypted source blob into m3u8 URLs + subtitle tracks + intro/outro skip times. Most fragile component due to frequent obfuscation changes.",
+        "examples": [
+          "megacloud.blog/embed-2/v3/e-1/getSources?id=${sourceId}&_k=${clientKey}",
+          "CryptoJS.AES.decrypt(sources, key)",
+          "megacloud.tv/embed-2/ajax/e-1/getSources?id= (older v1 path)"
+        ]
+      },
+      {
+        "name": "RapidCloud / VidCloud / StreamSB / StreamTape extractors",
+        "role": "Sibling embed extractors. RapidCloud (rapid-cloud.co) was the older hianime server and used a Google reCAPTCHA token + a key pulled from a GitHub raw key file (cinemaxhq/keys). StreamSB (streamsss.net/sources50, watchsb.com/sources50) needs a 'watchsb: streamsb' header. StreamTape scrapes an obfuscated robotlink from the page. Server numeric IDs map: vidstreaming=4, rapidcloud=1, streamsb=5, streamtape=3.",
+        "examples": [
+          "https://rapid-cloud.co/embed-6/...?vast=1",
+          "https://streamsss.net/sources50",
+          "headers: { watchsb: 'streamsb', 'User-Agent': UA }"
+        ]
+      },
+      {
+        "name": "Community precomputed-key repos",
+        "role": "Because in-house MegaCloud decryption keeps breaking, scrapers increasingly fetch a precomputed AES key (or a per-UA keystream) from a community-maintained GitHub raw file instead of deobfuscating the player themselves. itzzzme/megacloud-keys/key.txt currently serves a 64-hex-char key; yogesh-hacker/MegacloudKeys/keys.json and cinemaxhq/keys/e1/key are similar (the latter two DMCA'd in 2026).",
+        "examples": [
+          "raw.githubusercontent.com/itzzzme/megacloud-keys/refs/heads/main/key.txt -> 3709ad8892f413166b796a10c7fb86018bd1be1c7ae6f4d2cfc3fdc299cb3205",
+          "raw.githubusercontent.com/yogesh-hacker/MegacloudKeys/refs/heads/main/keys.json"
+        ]
+      },
+      {
+        "name": "Sibling site providers",
+        "role": "Same pipeline shape, different sites/embeds. AnimePahe: /api?m=search&q=, /api?m=release&id=, /play/ then the kwik extractor (pahe.win / kwik) which uses an eval-packed JS unpack + _token form post; cloudflare/DDoS-guard cookie needed. GoGoAnime: gogocdn/goload extractor using AES (encrypt-ajax endpoint, CryptoJS with key+iv+secondKey). AllAnime: GraphQL API + clock.json source endpoint. 9anime/AniWave & KickassAnime: heavier custom obfuscation (9anime is largely dead/abandoned in scrapers).",
+        "examples": [
+          "animepahe.si /api?m=search&q=naruto",
+          "gogocdn encrypt-ajax.php with AES key/iv",
+          "kickassanime provider in consumet (dist/providers/anime/kickassanime.js)"
+        ]
+      }
+    ],
+    "howItWorks": [
+      "1. SEARCH: Client calls search(query). Provider GETs the site search page (consumet hianime: GET https://hianime.to/search?keyword=... and also /ajax/search/suggest?keyword=ENCODED for autocomplete) and parses result cards with Cheerio to extract the per-anime unique id (a slug like 'steinsgate-3' where the trailing number is the site's internal numeric id).",
+      "2. ANIME INFO: fetchAnimeInfo(id) GETs https://hianime.to/{id} (the watch/details page) and Cheerio-scrapes title, poster, synopsis, type, status, MAL/AniList ids, and related/recommended anime.",
+      "3. EPISODE LIST: fetchEpisodes(id) calls the AJAX endpoint GET /ajax/v2/episode/list/{numericId} where numericId = id.split('-').pop(). REQUIRED headers: 'X-Requested-With: XMLHttpRequest' and Referer: https://hianime.to/watch/{id}. Response is JSON {html: ...}; the html is loaded into Cheerio and each .ep-item is parsed into {number, title, isFiller, episodeId} where episodeId looks like 'steinsgate-3?ep=213'.",
+      "4. SERVERS: fetchEpisodeServers(episodeId) calls GET /ajax/v2/episode/servers?episodeId={the part after ?ep=}. Response JSON {html} is parsed for .server-item nodes, each carrying data-type (sub|dub|raw), data-server-id (the human server: 4=vidstreaming/HD-1, 1=megacloud, etc.), and data-id (the opaque link id used in the next step). Result is grouped into sub[], dub[], raw[] arrays of {serverId, serverName}. This is the 'servers' concept: every (episode, category, server) combination is one embed.",
+      "5. RESOLVE EMBED: To get a playable link, the provider picks a server's data-id and calls GET /ajax/v2/episode/sources?id={dataId}. Response JSON is {type, link, server, sources:[]}; 'link' is the embed iframe URL on the streaming host, e.g. https://megacloud.blog/embed-2/v3/e-1/{xrax}?... (older: megacloud.tv / rapid-cloud.co / megaplay.buzz).",
+      "6. EXTRACTOR DISPATCH: fetchEpisodeSources(link, server) switches on server name. VidStreaming/VidCloud -> MegaCloud extractor; StreamSB -> StreamSB extractor (with watchsb header); StreamTape -> StreamTape extractor. Each is passed the embed URL.",
+      "7. MEGACLOUD KEY: The MegaCloud extractor parses the embed page (Referer: https://hianime.to/) to recover a per-request client key/nonce. It scans the HTML for one of several rotating markers: <meta name=\"_gg_fb\" content=...>, an HTML comment _is_th:..., window._lk_db = {x,y,z:...}, <div data-dpi=...>, <script nonce=...>, or window._xy_ws = '...'. The recovered token becomes the _k query param.",
+      "8. GETSOURCES: It then GETs https://megacloud.blog/embed-2/v3/e-1/getSources?id={sourceId}&_k={clientKey}. The JSON has {sources, encrypted:true, tracks, intro, outro}. If encrypted, 'sources' is an AES-encrypted base64 blob.",
+      "9. DECRYPT: The extractor runs CryptoJS.AES.decrypt(encryptedSources, key) where the AES key is either derived from the obfuscated player JS (deobfuscated locally) or, increasingly, fetched as a precomputed key from a community GitHub raw file (e.g. itzzzme/megacloud-keys/key.txt). JSON.parse yields [{file: '...master.m3u8', type:'hls'}].",
+      "10. ASSEMBLE: Provider returns ISource = {headers:{Referer, User-Agent}, sources:[{url, isM3U8, quality}], subtitles:[{lang, url(.vtt), default}], intro:{start,end}, outro, anilistID, malID}. The Referer header is critical: the CDN rejects m3u8/segment requests without the correct embed-host Referer, which is why a downstream m3u8 proxy must re-inject it.",
+      "11. PLAYBACK: A frontend (hls.js / video player) loads the master.m3u8. Because the .m3u8 and .ts/.m4s segments are Referer/Origin-gated and CORS-blocked, the URL is usually routed through an m3u8 proxy (separate layer) that rewrites playlist URIs and forwards the Referer/User-Agent headers."
+    ],
+    "keyRepos": [
+      {
+        "name": "consumet/consumet.ts",
+        "url": "https://github.com/consumet/consumet.ts",
+        "whatItProvides": "Reference TypeScript library; HiAnime(Zoro)/AnimePahe/GoGoAnime/AnimeKai/KickassAnime providers + MegaCloud/RapidCloud/StreamSB/kwik/gogocdn/videostr extractors. NOTE: repo is now GitHub 451 DMCA-blocked (2026-03-19); code still on npm as @consumet/extensions."
+      },
+      {
+        "name": "@consumet/extensions (npm)",
+        "url": "https://www.npmjs.com/package/@consumet/extensions",
+        "whatItProvides": "Published build of consumet.ts (latest 1.8.8). Surviving way to read the provider/extractor source after the GitHub takedown; contains dist/providers/anime/hianime.js and dist/extractors/*."
+      },
+      {
+        "name": "consumet/api.consumet.org",
+        "url": "https://github.com/consumet/api.consumet.org",
+        "whatItProvides": "Hosted Express REST wrapper exposing the library over HTTP (self-hostable). Also DMCA-affected."
+      },
+      {
+        "name": "ghoshRitesh12/aniwatch (npm: aniwatch)",
+        "url": "https://www.npmjs.com/package/aniwatch",
+        "whatItProvides": "Hianime-only scraper package (latest 2.27.9). GitHub repo 451-blocked (2026-03-23) but npm package still installable; ships compiled dist/index.js with all endpoints and the MegaCloud key-extraction logic."
+      },
+      {
+        "name": "ghoshRitesh12/aniwatch-api",
+        "url": "https://github.com/ghoshRitesh12/aniwatch-api",
+        "whatItProvides": "Dockerized REST API over the aniwatch package; /api/v2/hianime/* routes. GitHub now redirects/blocked; many live forks (e.g. BytesGaming/aniwatch-api-stream, TBNRDev/HiAnime-API)."
+      },
+      {
+        "name": "itzzzme/megacloud-keys",
+        "url": "https://github.com/itzzzme/megacloud-keys",
+        "whatItProvides": "Auto-updated precomputed MegaCloud AES key (key.txt). Currently live (HTTP 200). Scrapers fetch this raw file to skip local deobfuscation."
+      },
+      {
+        "name": "eggwite.moe writeup",
+        "url": "https://eggwite.moe/blog/megacloud-key-extraction-analysis",
+        "whatItProvides": "Reverse-engineering analysis of MegaCloud key extraction (AES, control-flow-flattening deobfuscation, WASM->JS shift)."
+      },
+      {
+        "name": "pratikpatel8982/yt-dlp-hianime",
+        "url": "https://github.com/pratikpatel8982/yt-dlp-hianime",
+        "whatItProvides": "yt-dlp plugin for hianime; another current implementation of the same extractor flow, useful as a cross-reference."
+      }
+    ],
+    "technologies": [
+      "Node.js / TypeScript",
+      "axios (HTTP client)",
+      "cheerio (server-side jQuery-style HTML parsing)",
+      "Express.js and Hono (REST wrappers)",
+      "Docker (deployment of aniwatch-api)",
+      "crypto-js (CryptoJS.AES.decrypt for MegaCloud source decryption)",
+      "HLS / m3u8 (output stream format), WebVTT (.vtt subtitles)",
+      "Site internal AJAX/XHR JSON endpoints (/ajax/v2/episode/servers, /ajax/v2/episode/sources, /ajax/v2/episode/list, /ajax/search/suggest, /ajax/schedule/list)",
+      "WebAssembly (historical MegaCloud key gen) and obfuscated JS (control flow flattening, string-array encoding)",
+      "Google reCAPTCHA v3 (older RapidCloud token flow)",
+      "TLS/JA3 fingerprinting on CDN side (anti-bot)"
+    ],
+    "gotchas": [
+      "X-Requested-With: XMLHttpRequest and a correct Referer (https://hianime.to/watch/{id}) are mandatory on the /ajax/* calls; without them the site returns empty/HTML-error instead of the JSON {html} payload.",
+      "The episodeId format is slug?ep=NUMERIC ('steinsgate-3?ep=213'); the numeric anime id for /episode/list is the trailing number after the last hyphen of the slug (id.split('-').pop()).",
+      "The 'servers' are split into sub / dub / raw lists; the same episode has different data-id values per category, and dub/raw may be missing. Picking the wrong category silently returns the wrong audio.",
+      "MegaCloud is the brittle part: the getSources response is AES-encrypted and the key + the per-request _k client key are hidden behind frequently-rotated obfuscated JS (markers like _gg_fb, _lk_db, _xy_ws, data-dpi, nonce). Any obfuscation change breaks every scraper at once; this is why a deobfuscation/AST pipeline (unflatten CFF, decode string arrays, inline, constant-fold, extract key) or a precomputed-key GitHub file is used.",
+      "CDN-side anti-bot: MegaCloud's CDN does TLS/JA3 fingerprinting, so plain Node fetch/axios can be blocked even with perfect headers; clients may need curl-impersonate / a real-browser TLS stack.",
+      "Output m3u8 and its segments are Referer/Origin gated and CORS-blocked, so the returned 'url' is not directly playable in a browser without an m3u8 proxy that re-injects Referer/User-Agent and rewrites playlist URIs.",
+      "Host churn: MegaCloud has moved across domains (megacloud.tv -> megacloud.blog) and path versions (/embed-2/ajax/e-1 v1 -> /embed-2/v2/e-1 -> /embed-2/v3/e-1); aniwatch domain itself moved zoro.to -> aniwatch.to -> hianime.to/hianimez.to/aniwatchtv.to. Hardcoded hosts rot fast.",
+      "Legal: the entire OSS ecosystem was DMCA / DMCA-1201 taken down in 2026 (consumet.ts 2026-03-19 DramaCool notice; aniwatch + aniwatch-api + hianime-API clones + MegacloudKeys 2026-03-23 by Remove Your Media LLC for Crunchyroll/VIZ, citing 17 U.S.C. 1201(a)(2) anti-circumvention). Building 'the same shape' against pirated sources carries the same anti-circumvention exposure; the legitimate path is to point this exact provider/extractor architecture at self-hosted/licensed HLS instead of scraping."
+    ],
+    "verification": {
+      "refuted": [
+        {
+          "claim": "Claim 5: itzzzme/megacloud-keys/key.txt is live (HTTP 200, value 3709ad8892f413166b796a10c7fb86018bd1be1c7ae6f4d2cfc3fdc299cb3205); yogesh-hacker/MegacloudKeys and cinemaxhq/keys are DMCA-blocked.",
+          "status": "refuted",
+          "note": "Partly correct, partly wrong (checked 2026-06-21). CORRECT: raw.githubusercontent.com/itzzzme/megacloud-keys/refs/heads/main/key.txt returns HTTP 200 with EXACTLY 3709ad8892f413166b796a10c7fb86018bd1be1c7ae6f4d2cfc3fdc299cb3205 (64-char hex), and github.com/itzzzme/megacloud-keys is 200. CORRECT: github.com/yogesh-hacker/MegacloudKeys is HTTP 451 (DMCA) - and it is explicitly named in the 2026-03-23 Crunchyroll DMCA notice; its raw keys.json now 404s. WRONG: cinemaxhq/keys is NOT DMCA-blocked - github.com/cinemaxhq/keys returns HTTP 200 and raw .../cinemaxhq/keys/e1/key returns HTTP 200. Additional nuance: cinemaxhq's value is NOT a hex string; it serves an array-of-pairs format ([[21,7],...]) used by a different (e1 pair-offset) decryption scheme, so it is not directly comparable to itzzzme's hex 'mega' key. The 'values change constantly' caveat is reasonable. All three repos are still referenced inside aniwatch@2.27.9 (itzzzme key.txt, yogesh-hacker keys.json['mega'], cinemaxhq/keys/e1/key as fallback).",
+          "sources": [
+            "https://raw.githubusercontent.com/itzzzme/megacloud-keys/refs/heads/main/key.txt",
+            "https://raw.githubusercontent.com/cinemaxhq/keys/e1/key",
+            "https://github.com/cinemaxhq/keys",
+            "https://github.com/yogesh-hacker/MegacloudKeys",
+            "https://raw.githubusercontent.com/github/dmca/refs/heads/master/2026/03/2026-03-23-crunchyroll.md"
+          ]
+        }
+      ],
+      "confirmed": [
+        "Claim 1: consumet @consumet/extensions v1.8.8 MegaCloud and VideoStr extractors no longer decrypt in-house; megacloud.js calls 'https://crawlr.cc/9D7F1B3E8?url=' + encodeURIComponent(videoUrl) and videostr.js calls 'https://crawlr.cc/E2B9A6F4C?url='.",
+        "Claim 2: MegaCloud getSources path is megacloud.blog/embed-2/v3/e-1/getSources?id={sourceId}&_k={clientKey}; client key scraped from megacloud.blog/embed-2/v3/e-1/{xrax}; host and v3 rotate.",
+        "Claim 3: aniwatch package references megaplay.buzz as fallback HD server: megaplay.buzz/stream/getSources?id= and megaplay.buzz/stream/s-2/{epId}/{category}.",
+        "Claim 4: server numeric-id mapping (vidstreaming=4, rapidcloud=1, streamsb=5, streamtape=3) from a consumet hianime.js comment; may not match live ids; hianime now labels servers HD-1/HD-2/SB and 'hd-1' is used in aniwatch's API.",
+        "Claim 6: aniwatch-api route /api/v2/hianime/episode/sources?animeEpisodeId=...&server=...&category=... with default server 'hd-1' - sourced from search-surfaced README/issue text, not a directly fetched README (repo 451-blocked); verify against a live fork.",
+        "Claim 7: 9anime/AniWave largely defunct in scraper ecosystem; gogoanime unstable/removed; consumet 1.8.8 anime providers dir contains animekai, animepahe, animesama, animesaturn, animeunity, hianime, kickassanime but NOT standalone gogoanime or zoro."
+      ],
+      "corrections": [
+        "Claim 5 is REFUTED as stated: cinemaxhq/keys is NOT DMCA-blocked. As of 2026-06-21 github.com/cinemaxhq/keys = HTTP 200 and raw .../cinemaxhq/keys/e1/key = HTTP 200. Only yogesh-hacker/MegacloudKeys is 451 (it is explicitly named in the 2026-03-23 Crunchyroll DMCA notice). itzzzme is live and serves the exact claimed hex value.",
+        "Claim 5 detail: cinemaxhq's served value is not a hex AES key; it is an array-of-pairs ([[21,7],[21,7],[77,6],...]) consumed by a different e1 pair-offset decode path, so it should not be described the same way as itzzzme's 64-char hex 'mega' key.",
+        "Claim 2 scope correction: the exact megacloud.blog/embed-2/v3/e-1/getSources?id=...&_k=... path and the in-house AES decryption (keygen2/decryptSrc2 + a megacloudKey fetched from the key repos) live in the aniwatch package, NOT in consumet v1.8.8. Consumet v1.8.8's megacloud.js contains NO megacloud.blog/getSources string and NO decryption at all - it fully outsources to crawlr.cc (Claim 1). So the two libraries currently use DIFFERENT strategies: aniwatch still decrypts locally with a remotely-hosted key; consumet calls a black-box resolver.",
+        "Claim 6 caveat: the GitHub repo block is not a simple 451 on the old URL - github.com/ghoshRitesh12/aniwatch-api 301-redirects (the owner renamed ghoshRitesh12 -> ritesshg) and the FINAL URL github.com/ritesshg/aniwatch-api returns 451. Same for the aniwatch repo. The exact REST route string could not be byte-verified from a live primary README because the listed forks (PacaHat/hi-api, Zeddxx/api-hianime, BytesGaming/aniwatch-api-stream) are also now 451-blocked.",
+        "DMCA attribution refinement: the publicly available 2026-03-23 github/dmca notice (Remove Your Media LLC, for Crunchyroll LLC + VIZ Media LLC) explicitly names ghoshRitesh12/aniwatch, ghoshRitesh12/aniwatch-api (~414 forks), yogesh-hacker/MegacloudKeys, plus several hianime API clones (yahyaMomin, IrfanKhan66, Shalin-Shah-2002, ayanrajpoot10, itzzzme/anime-api). It does NOT name consumet.ts, nor itzzzme/megacloud-keys, nor cinemaxhq/keys - consistent with the latter two key repos still being HTTP 200. consumet.ts is independently confirmed 451-blocked but the specific 2026-03-19 date in the researcher's context could not be byte-verified from the github/dmca file checked."
+      ],
+      "additionalFindings": [
+        "Architecture divergence (key insight): As of mid-2026 the two ecosystems handle the hardest step differently. consumet@1.8.8 = pure black-box outsourcing to crawlr.cc (no key, no AES). aniwatch@2.27.9 = still does the AES itself (functions keygen2(megacloudKey, clientKey), decryptSrc2, BigInt hash with constants 31n/247/5, 3 decode layers) but pulls the static 'megacloudKey' from third-party GitHub raw key files, and pulls a per-request clientKey scraped from the embed page's _gg_fb meta nonce. So the secret is split: a slow-rotating server key (key repos) + a per-session client key (embed page).",
+        "aniwatch's bundle still contains a leftover debug statement console.log(clientKey, megacloudKey, encrypted) right before decryption in the getSources path - it logs secrets to stdout, a real code smell in the shipped npm artifact.",
+        "consumet@1.8.8 also ships a videostr.js extractor (VideoStr server) in addition to megacloud.js - both outsourced to crawlr.cc with distinct route IDs - which the researcher's overview did not mention as a named server.",
+        "consumet's extractor set is broad and current: besides megacloud/videostr/rapidcloud it includes streamwish, vidhide, vidmoly, voe, filemoon, lulustream, luffy, megaup, kwik, etc. - i.e. it has pivoted toward the generic file-host extractor landscape, not just hianime-specific servers.",
+        "aniwatch still recognizes legacy/alt server identifiers (megaplay.buzz as an HD fallback, plus enum entries for asianload, gogocdn, mixdrop, upcloud, filemoon), even though the primary live hianime servers are hd-1/hd-2/megacloud/streamsb.",
+        "The DMCA action was processed by GitHub as a copyright (not anti-circumvention/1201) takedown: GitHub stated it did NOT find sufficient info for a valid 1201 anti-circumvention claim but found other valid copyright claims - relevant nuance to the researcher's 'DMCA 1201 anti-circumvention' framing.",
+        "Version pins at time of check: @consumet/extensions = 1.8.8 (latest), aniwatch = 2.27.9 (latest on npm). The npm artifacts remain the practical distribution channel since the GitHub sources are 451-blocked, exactly as the overview states."
+      ]
+    },
+    "sources": [
+      {
+        "title": "consumet/consumet.ts (GitHub, now DMCA 451-blocked)",
+        "url": "https://github.com/consumet/consumet.ts"
+      },
+      {
+        "title": "@consumet/extensions on npm (live source mirror, v1.8.8)",
+        "url": "https://www.npmjs.com/package/@consumet/extensions"
+      },
+      {
+        "title": "consumet ZORO provider docs",
+        "url": "https://github.com/consumet/consumet.ts/blob/master/docs/providers/zoro.md"
+      },
+      {
+        "title": "ghoshRitesh12/aniwatch (GitHub, DMCA 451-blocked)",
+        "url": "https://github.com/ghoshRitesh12/aniwatch"
+      },
+      {
+        "title": "aniwatch on npm (live, v2.27.9 - README + dist with endpoints)",
+        "url": "https://www.npmjs.com/package/aniwatch"
+      },
+      {
+        "title": "ghoshRitesh12/aniwatch-api",
+        "url": "https://github.com/ghoshRitesh12/aniwatch-api"
+      },
+      {
+        "title": "GitHub DMCA notice 2026-03-23 (Crunchyroll/VIZ via Remove Your Media LLC, targets aniwatch, aniwatch-api, MegacloudKeys, hianime API clones)",
+        "url": "https://github.com/github/dmca/blob/master/2026/03/2026-03-23-crunchyroll.md"
+      },
+      {
+        "title": "GitHub DMCA notice 2026-03-12 (DramaCool; consumet.ts blocked 2026-03-19)",
+        "url": "https://github.com/github/dmca/blob/master/2026/03/2026-03-12-dramacool.md"
+      },
+      {
+        "title": "itzzzme/megacloud-keys (live precomputed MegaCloud AES key)",
+        "url": "https://github.com/itzzzme/megacloud-keys"
+      },
+      {
+        "title": "Eggwite - MegaCloud key extraction analysis (AES, CFF deobfuscation, WASM->JS)",
+        "url": "https://eggwite.moe/blog/megacloud-key-extraction-analysis"
+      },
+      {
+        "title": "pratikpatel8982/yt-dlp-hianime (current hianime extractor cross-reference)",
+        "url": "https://github.com/pratikpatel8982/yt-dlp-hianime/releases"
+      },
+      {
+        "title": "aniwatch-api Streaming Links endpoint issue (route shape + 403/500 reality)",
+        "url": "https://github.com/ghoshRitesh12/aniwatch-api/issues/16"
+      }
+    ]
+  },
+  {
+    "layer": "The streaming proxy layer (CORS + m3u8 + segment + key + subtitle proxy)",
+    "overview": "Anime sites like hianime.to never let the browser fetch the real video host directly. The episode-source API (e.g. aniwatch-api) returns a MegaCloud/RapidCloud master.m3u8 URL plus a `headers` object containing the upstream `Referer` (and often `User-Agent`/`Origin`). The video host (megacloud.*) enforces Referer/Origin checks and returns no `Access-Control-Allow-Origin`, so an hls.js player on a different domain gets 403s or CORS failures. The fix is a server-side streaming proxy that sits between the player and the host: it fetches the playlist with the correct Referer injected, rewrites every variant/segment/key/subtitle URI so they loop back through the proxy (carrying the same upstream headers), streams .ts/.mp4 segments with Range support, and stamps `Access-Control-Allow-Origin: *` on every response. Real implementations span Node/Express (Eltik/M3U8-Proxy, shafat-96's TS variant), Go (shafat-96/go-proxy, bitknox/hls-proxy), and edge runtimes (Cloudflare Workers / Hono \u2014 MHSanaei/HLS-Proxy-Worker, Rawknee-69/Hianime-proxy). Because every byte of video transits the proxy, bandwidth/egress is the dominant cost, which pushes operators toward Cloudflare Workers (zero egress fees) and segment caching \u2014 though Cloudflare's ToS restricts video on its CDN.",
+    "components": [
+      {
+        "name": "Master/variant playlist proxy endpoint",
+        "role": "Fetches the .m3u8 with injected upstream headers, parses it line-by-line, and rewrites the lines following #EXT-X-STREAM-INF (sub-playlists) to point back at this same playlist-proxy endpoint, and #EXTINF lines (segments) to the segment-proxy endpoint. Resolves relative URIs against the playlist base URL first. Typically GET /m3u8-proxy or /proxy.",
+        "examples": [
+          "GET /m3u8-proxy?url=<encoded master.m3u8>&headers=<encoded JSON>",
+          "GET /proxy?url=https%3A%2F%2Fhost%2Fmaster.m3u8&headers=%7B%22Referer%22%3A...%7D",
+          "shafat-96/go-proxy rewritePlaylist(): #EXT-X-STREAM-INF -> /proxy, #EXTINF -> /ts-proxy"
+        ]
+      },
+      {
+        "name": "Segment (.ts / fMP4) proxy endpoint",
+        "role": "Streams the actual media chunks. Forwards the client Range header upstream, preserves Content-Length/Content-Range/Accept-Ranges and the upstream status (206 Partial Content), and pipes the body with io.Copy / response.body. Adds CORS. Usually GET /ts-proxy.",
+        "examples": [
+          "GET /ts-proxy?url=<encoded segment.ts>&headers=<encoded JSON>",
+          "go-proxy streamMedia(): copies Range, returns upstream status unchanged",
+          "Forwarded headers: Content-Length, Content-Range, Accept-Ranges, Content-Type"
+        ]
+      },
+      {
+        "name": "EXT-X-KEY (AES-128) URI rewriter",
+        "role": "HLS streams encrypted with AES-128-CBC carry #EXT-X-KEY:METHOD=AES-128,URI=\"...\" lines. The key URI must also be proxied (same Referer requirement), so the proxy regex-extracts the URI=\"...\" attribute and rewrites it to its own key/segment endpoint. shafat-96/go-proxy and Eltik/M3U8-Proxy advertise AES-128 key URI support.",
+        "examples": [
+          "Regex: URI=(\"([^\"]*)\"|'([^']*)')",
+          "#EXT-X-KEY:METHOD=AES-128,URI=\"/ts-proxy?url=<encoded key url>&headers=...\",IV=0x...",
+          "go-proxy rewriteURIField() handles EXT-X-MAP URI (init segment) and EXT-X-KEY"
+        ]
+      },
+      {
+        "name": "EXT-X-MAP / EXT-X-MEDIA handlers",
+        "role": "EXT-X-MAP:URI=... (the fMP4 init segment) is rewritten to the segment proxy; EXT-X-MEDIA:URI=... (alternate audio/subtitle renditions) is rewritten to the playlist proxy. Comprehensive proxies handle all four tag families so adaptive/multi-audio streams don't break.",
+        "examples": [
+          "go-proxy: #EXT-X-MAP URI -> /ts-proxy",
+          "go-proxy: #EXT-X-MEDIA URI -> /proxy"
+        ]
+      },
+      {
+        "name": "Subtitle (WebVTT) proxy",
+        "role": "The aniwatch/consumet source response returns tracks/subtitles as .vtt files (kind 'captions') plus thumbnail tracks; these are also on the host and need CORS, so they pass through a generic /fetch or proxy route with Content-Type text/vtt and CORS injected. hls.js/video.js then attach them as text tracks.",
+        "examples": [
+          "GET /fetch?url=<encoded subtitle.vtt>&ref=<referer> (Rawknee-69/Hianime-proxy)",
+          "Response: Content-Type: text/vtt + Access-Control-Allow-Origin: *",
+          "Source JSON: tracks:[{file, label, kind:'captions', default}]"
+        ]
+      },
+      {
+        "name": "Upstream header injector",
+        "role": "Builds the headers sent to the video host. Reads an explicit `headers`/`ref` query param (percent-encoded JSON) and/or maps the target hostname to a hardcoded ruleset (GenerateHeadersForDomain / templates.go / a rules object) that sets Referer, Origin, and a browser-like User-Agent; falls back to a default Chrome User-Agent if none supplied.",
+        "examples": [
+          "rules = { 'megacloud.tld': { Origin:'https://...', Referer:'https://.../' } }",
+          "Default UA: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ... Chrome/...",
+          "go-proxy applyHeaders() applies merged headers to every upstream request"
+        ]
+      },
+      {
+        "name": "CORS / preflight middleware",
+        "role": "Wraps every response with Access-Control-Allow-Origin (* or echoed origin), Access-Control-Allow-Methods (GET,HEAD,POST,OPTIONS), Access-Control-Expose-Headers (Content-Length,Content-Range,Accept-Ranges,Content-Type), and answers OPTIONS preflight with 204. Often gated by a WHITELIST_DOMAINS allowlist so the proxy isn't a free open relay.",
+        "examples": [
+          "withCORS() middleware in go-proxy reads WHITELIST_DOMAINS env (default *)",
+          "OPTIONS -> 204 No Content with corsHeaders",
+          "Cloudflare example: response.headers.set('Access-Control-Allow-Origin', url.origin); append Vary: Origin"
+        ]
+      }
+    ],
+    "howItWorks": [
+      "Player frontend calls the scraper API (e.g. aniwatch-api /api/v2/hianime/episode/sources?animeEpisodeId=...&server=hd-1&category=sub). The API runs the MegaCloud/RapidCloud extractor and returns {sources:[{url:'https://<megacloud-host>/.../master.m3u8', type:'hls'}], tracks:[...vtt...], headers:{Referer:'https://<megacloud>/', 'User-Agent':...}}.",
+      "Frontend does NOT hand that master.m3u8 directly to hls.js. Instead it builds a proxy URL: PROXY/m3u8-proxy?url=<encodeURIComponent(master.m3u8)>&headers=<encodeURIComponent(JSON.stringify({Referer:..., 'User-Agent':...}))> and gives that to hls.js as the source.",
+      "Proxy receives the request, JSON-parses the headers param, optionally merges hostname-specific defaults (Referer/Origin/UA), and fetches the upstream master.m3u8 with those headers so the host returns 200 instead of 403.",
+      "Proxy parses the returned playlist line-by-line. For each #EXT-X-STREAM-INF the following variant-playlist URL is resolved to absolute (against the playlist's base) and rewritten to PROXY/m3u8-proxy?url=...&headers=... so the variant playlist is also proxied.",
+      "When the chosen variant playlist is fetched, each #EXTINF segment URL is rewritten to PROXY/ts-proxy?url=...&headers=..., each #EXT-X-KEY URI=\"...\" is rewritten to the key/segment proxy, and #EXT-X-MAP / #EXT-X-MEDIA URIs are rewritten similarly. The header context is propagated into every rewritten child URL.",
+      "hls.js requests each rewritten segment from PROXY/ts-proxy. The proxy forwards the client's Range header upstream (with Referer injected), returns the upstream 206/200 plus Content-Range/Accept-Ranges, and streams bytes straight through.",
+      "For encrypted streams hls.js fetches the AES-128 key via the rewritten EXT-X-KEY URI through the same proxy; the proxy fetches the key from the host with Referer and returns the raw 16-byte key (with CORS) so the browser can decrypt segments locally.",
+      "Subtitles: the frontend loads each VTT track through a /fetch (or subtitle) proxy route that adds CORS + text/vtt; hls.js / video.js attaches them as <track> text tracks. Every proxy response carries Access-Control-Allow-Origin so the browser accepts the cross-origin media."
+    ],
+    "keyRepos": [
+      {
+        "name": "Eltik/M3U8-Proxy",
+        "url": "https://github.com/Eltik/M3U8-Proxy",
+        "whatItProvides": "TypeScript/Node m3u8 proxy that wraps Rob Wu's cors-anywhere and adds a /m3u8-proxy?url=&headers= route; rewrites the playlist to route .ts through a CORS proxy and supports AES-128 key URIs and arbitrary upstream headers (e.g. {\"referer\":\"https://9anime.pl\"}). The canonical pattern copied by many anime frontends."
+      },
+      {
+        "name": "shafat-96/go-proxy",
+        "url": "https://github.com/shafat-96/go-proxy",
+        "whatItProvides": "Go HLS proxy with /proxy (playlist) and /ts-proxy (segment, Range-aware) endpoints. rewritePlaylist()/makeProxyURL() resolve relative URLs and rewrite EXT-X-STREAM-INF/EXTINF/EXT-X-KEY/EXT-X-MAP/EXT-X-MEDIA; templates.go GenerateHeadersForDomain() injects per-domain Referer/Origin/UA; withCORS() honors WHITELIST_DOMAINS. The most complete concrete reference for the layer."
+      },
+      {
+        "name": "JulzOhern/Gogoanime-and-Hianime-proxy",
+        "url": "https://github.com/JulzOhern/Gogoanime-and-Hianime-proxy",
+        "whatItProvides": "Express+Axios server-side proxy explicitly built for gogoanime + hianime streams: fetches the .m3u8, parses each line, rewrites segment URLs and AES-128 key URIs, proxies all media through itself, and supports custom Referer/Origin headers to bypass browser CORS."
+      },
+      {
+        "name": "MHSanaei/HLS-Proxy-Worker",
+        "url": "https://github.com/MHSanaei/HLS-Proxy-Worker",
+        "whatItProvides": "Single-file Cloudflare Worker (paste index.js into dashboard). Rules object maps hostname -> {Origin, Referer}; rewrites relative playlist paths to absolute proxied URLs via encodeURI(baseUrl+line); injects a Chrome UA; ?url= param. Demonstrates the edge-worker variant (100k free reqs/day)."
+      },
+      {
+        "name": "Rawknee-69/Hianime-proxy",
+        "url": "https://github.com/Rawknee-69/Hianime-proxy",
+        "whatItProvides": "Hono-based Cloudflare Worker for hianime with a /fetch?url=&ref= endpoint, dynamic URL replacement (rewrites URLs in fetched content to proxy paths), and default CORS (ACAO:*, methods GET/POST/PUT/DELETE/OPTIONS, Max-Age 3600) editable in request.ts."
+      },
+      {
+        "name": "ghoshRitesh12/aniwatch-api",
+        "url": "https://github.com/ghoshRitesh12/aniwatch-api",
+        "whatItProvides": "The scraper API the proxy sits in front of. Its episode-sources endpoint returns the MegaCloud master.m3u8 plus the `headers` object (Referer/User-Agent) and VTT tracks the proxy must replay upstream. Defines the data contract that drives the proxy."
+      },
+      {
+        "name": "consumet/cors-anywhere",
+        "url": "https://github.com/consumet/cors-anywhere",
+        "whatItProvides": "Consumet's fork of cors-anywhere used as the generic CORS relay behind their stack (cors.proxy.consumet.org), accepting /?url=...&headers={...}. The simplest CORS-bypass primitive that m3u8 proxies build on."
+      },
+      {
+        "name": "bitknox/hls-proxy",
+        "url": "https://pkg.go.dev/github.com/bitknox/hls-proxy",
+        "whatItProvides": "Go HLS proxy that parses m3u8 manifests and proxies all child requests, with optional Referer and Origin injection and prefetch hooks \u2014 a clean, library-style reference for the parse-and-rewrite loop."
+      }
+    ],
+    "technologies": [
+      "HTTP Live Streaming (HLS) / RFC 8216",
+      "M3U8 manifest (master + variant playlists)",
+      "MPEG-TS (.ts) and fMP4 (CMAF) segments",
+      "AES-128-CBC HLS encryption (#EXT-X-KEY, IV)",
+      "WebVTT (.vtt) subtitles and thumbnail tracks",
+      "HTTP Range requests / 206 Partial Content",
+      "CORS preflight (OPTIONS) + Access-Control-Allow-Origin/Methods/Expose-Headers",
+      "Referer / Origin / User-Agent header spoofing",
+      "hls.js (browser MSE player) / video.js",
+      "Node.js + Express + Axios",
+      "Go net/http + io.Copy streaming",
+      "Cloudflare Workers (V8 isolate, fetch API) + Hono",
+      "Vercel/edge serverless functions",
+      "Rob Wu cors-anywhere",
+      "Cloudflare R2 / cache API for segment caching"
+    ],
+    "gotchas": [
+      "Relative-URI resolution is the #1 bug: segment/key URIs in a playlist are usually relative; you must resolve them against the variant playlist's own base URL (not the master's) before rewriting, or segments 404.",
+      "Header context must be propagated transitively: the Referer needed for the master playlist is also needed for variants, segments AND the AES key request. If you forget to thread headers into rewritten child URLs, the key fetch 403s and playback fails with a decryption error.",
+      "Token/signature expiry: MegaCloud m3u8 URLs are signed and short-lived (minutes). Caching the manifest too long, or a slow client, causes mid-playback 403s; the manifest must be re-resolved, not just re-proxied.",
+      "MegaCloud/RapidCloud rotate domains and change encryption frequently (megacloud.tv -> megacloud.blog -> megacloud.club ...), so the exact Referer/Origin value and the extractor both break every few months and must be re-derived.",
+      "An open ?url=anything proxy is an abusable open relay (SSRF + free bandwidth for strangers); production proxies need a WHITELIST_DOMAINS allowlist and/or a signed/HMAC token on the proxy URL.",
+      "Bandwidth is the killer: every video byte transits your proxy, so a few concurrent 1080p viewers saturate a small VPS. This is why operators move to edge workers and segment caching rather than a single origin box.",
+      "Cloudflare Workers ToS (former Section 2.8, now CDN Service-Specific Terms) prohibits serving video files over its CDN/Workers unless you use Cloudflare Stream/R2 \u2014 proxying third-party .ts through Workers can get the account restricted/banned despite zero-egress pricing.",
+      "Don't blindly forward all client headers upstream: stripping/sanitizing cf-* and hop-by-hop headers (Connection, Transfer-Encoding) is necessary or upstream rejects the request; the Cloudflare CORS example strips cf-* before forwarding.",
+      "Streaming must be piped, not buffered: reading the whole segment into memory (instead of io.Copy / passing response.body) blows up memory and breaks live/Range seeking.",
+      "EXT-X-KEY METHOD=NONE and SAMPLE-AES vs AES-128 differ; naive 'rewrite every URI' logic can corrupt METHOD=NONE lines or miss IV handling."
+    ],
+    "verification": {
+      "refuted": [],
+      "confirmed": [
+        "1. The exact MegaCloud/RapidCloud Referer/Origin domain (megacloud.tv vs .blog vs .club) rotates and is unverified for mid-2026; must be confirmed live via DevTools on a current request.",
+        "2. MegaCloud's encryption/extraction scheme (e-1/e-2 endpoints, CryptoJS key derivation) changes frequently; consumet/aniwatch break and ship fixes every few months, so any specific decryption detail may be stale.",
+        "4. aniwatch-api route /api/v2/hianime/episode/sources and response fields (sources/tracks/headers) reflect recent README versions; the README/raw GitHub pages now return HTTP 451 (legal block), so the precise current schema could not be re-verified directly.",
+        "5. Cloudflare's video-on-CDN restriction wording moved from ToS Section 2.8 into Service-Specific/Supplemental Terms; the precise enforced policy for Workers proxying third-party video should be re-checked against current Cloudflare terms.",
+        "6. Cloudflare Workers free tier limit (~100,000 requests/day) and the 'no egress charges' claim are pricing details that change; verify current Workers pricing page."
+      ],
+      "corrections": [
+        "Claim 4 lists response fields as 'sources/tracks/headers'. The consumet/aniwatch-style episode-sources response documented in mirrors uses 'subtitles' for captions (objects with lang/url), not 'tracks'. 'tracks' is used by some related forks/versions. Treat the caption field name as version-dependent rather than fixed as 'tracks'.",
+        "Several claims are framed as needing live verification 'for mid-2026'. A material correction to the whole case study: HiAnime.to (the canonical Zoro/Aniwatch/HiAnime site) was shut down on 13-14 March 2026 by the ACE coalition following an $18.75M US court judgment and USTR 'notorious markets' listing. There is no live official hianime source to inspect as of the current date (2026-06-21), so 'confirm live via DevTools on a current hianime request' is no longer possible against the original site; megacloud.tv is the surviving host domain still used by other embed sites/forks.",
+        "Distinguish two separate encryption layers when discussing claim 3: (a) MegaCloud's CryptoJS/AES obfuscation of the source-URL payload returned by getSources (the part that breaks every few months), versus (b) optional HLS segment-level AES-128 (EXT-X-KEY) on the .m3u8 itself. Conflating them overstates how often the segment encryption changes."
+      ],
+      "additionalFindings": [
+        "megacloud.blog domain expired and streams migrated to megacloud.tv; the entire 'MegaCloudFix' ecosystem (browser extensions, RAELIE1/MegaCloudFix) exists solely to redirect .blog -> .tv, demonstrating concretely that the Referer/Origin host rotates (supports claim 1).",
+        "getSources endpoint format observed in 2026: https://megacloud.blog/embed-2/v3/e-1/getSources?id=<id>&_k=<clientKey> (and an older v2 variant). The '_k' client key parameter is a current addition to the scheme beyond the simple e-1/e-2 paths the researcher referenced.",
+        "Anti-bot beyond Referer/Origin: MegaCloud-family CDNs (rabbitstream/vidcloud/dokicloud/megacloud) reportedly use JA3/JA4 TLS fingerprinting to tell a real Chrome from a Node HTTP client. This means a naive server-side proxy may still be blocked at the TLS layer even with correct Referer; operators use curl-impersonate to mimic Chrome's TLS handshake. This is an important real-world wrinkle not mentioned in the proxy-layer overview.",
+        "Eggwite/megacloud-key-extractor is explicitly marked 'NO LONGER FUNCTIONAL', and ghoshRitesh12/aniwatch issue #17 plus 2026 community 'fix' posts directly evidence the every-few-months breakage cycle (supports claim 2).",
+        "Workers Paid CPU limits have increased: 30s default (up to 5 min), versus the older 50ms framing \u2014 relevant if the researcher cited old CPU limits alongside the request/egress figures.",
+        "GitHub now serves HTTP 451 for the aniwatch-api repo page AND for the megacloud.ts source blob (not just the README), and raw.githubusercontent.com returns 404 for the README path \u2014 so source-level re-verification is blocked through normal web fetching; an authenticated GitHub API/clone would be needed (gh CLI was not available in this environment)."
+      ]
+    },
+    "sources": [
+      {
+        "title": "Eltik/M3U8-Proxy (TS/Node m3u8 proxy, cors-anywhere + /m3u8-proxy route)",
+        "url": "https://github.com/Eltik/M3U8-Proxy"
+      },
+      {
+        "title": "shafat-96/go-proxy (Go HLS proxy: /proxy + /ts-proxy, EXT-X-KEY/MAP/MEDIA rewrite, withCORS)",
+        "url": "https://github.com/shafat-96/go-proxy"
+      },
+      {
+        "title": "JulzOhern/Gogoanime-and-Hianime-proxy (Express server-side m3u8+segment proxy, AES-128 keys)",
+        "url": "https://github.com/JulzOhern/Gogoanime-and-Hianime-proxy"
+      },
+      {
+        "title": "MHSanaei/HLS-Proxy-Worker (Cloudflare Worker, hostname->Origin/Referer rules, ?url=)",
+        "url": "https://github.com/MHSanaei/HLS-Proxy-Worker"
+      },
+      {
+        "title": "Rawknee-69/Hianime-proxy (Hono Cloudflare Worker, /fetch?url=&ref=, CORS in request.ts)",
+        "url": "https://github.com/Rawknee-69/Hianime-proxy"
+      },
+      {
+        "title": "MetaHat/m3u8-streaming-proxy (Hianime HLS proxy with CORS bypass)",
+        "url": "https://github.com/MetaHat/m3u8-streaming-proxy"
+      },
+      {
+        "title": "warren-bank/node-HLS-Proxy (Node HLS proxy with custom headers/Referer)",
+        "url": "https://github.com/warren-bank/node-HLS-Proxy"
+      },
+      {
+        "title": "Cloudflare Workers \u2014 CORS header proxy example (corsHeaders, handleOptions, Vary:Origin)",
+        "url": "https://developers.cloudflare.com/workers/examples/cors-header-proxy/"
+      },
+      {
+        "title": "consumet/cors-anywhere (Consumet CORS relay used behind the stack)",
+        "url": "https://github.com/consumet/cors-anywhere"
+      },
+      {
+        "title": "consumet.ts Zoro provider docs (fetchEpisodeSources returns headers.Referer + isM3U8 + subtitles)",
+        "url": "https://github.com/consumet/consumet.ts/blob/master/docs/providers/zoro.md"
+      },
+      {
+        "title": "ghoshRitesh12/aniwatch-api (scraper API returning megacloud m3u8 + headers + tracks)",
+        "url": "https://github.com/ghoshRitesh12/aniwatch-api"
+      },
+      {
+        "title": "bitknox/hls-proxy (Go HLS manifest proxy with optional Referer/Origin)",
+        "url": "https://pkg.go.dev/github.com/bitknox/hls-proxy"
+      },
+      {
+        "title": "Cloudflare blog \u2014 Goodbye Section 2.8 / new ToS (video-on-CDN restriction)",
+        "url": "https://blog.cloudflare.com/updated-tos/"
+      },
+      {
+        "title": "Cloudflare Workers pricing (no egress charge / request limits)",
+        "url": "https://developers.cloudflare.com/workers/platform/pricing/"
+      },
+      {
+        "title": "movixcorp/MovixOpenSource \u2014 Cloudflare Workers & Edge Proxies (DeepWiki)",
+        "url": "https://deepwiki.com/movixcorp/MovixOpenSource/6.3-cloudflare-workers-and-edge-proxies"
+      }
+    ]
+  },
+  {
+    "layer": "Infrastructure, anti-bot, and staying online (DMCA evasion / resilience)",
+    "overview": "Free ad-supported anime sites like the zoro.to -> aniwatch.to -> hianime.to lineage (one operator, believed to be in Vietnam) survive by separating three things: a public front-end behind Cloudflare's reverse proxy (which hides the real origin IP and absorbs DDoS), offshore/DMCA-ignored or bulletproof origin servers, and disposable domains rotated whenever ad blacklists, ISP injunctions, or ACE/MPA seizures hit. The same operator ran multiple brands and embed/storage services (2Embed, RabbitStream/MegaCloud), so when one brand is seized the audience is funneled to the next within days via Discord and redirects. The open-source scraper ecosystem (consumet.ts, ghoshRitesh12's aniwatch/aniwatch-api, MegaCloud extractors) does not host video; it impersonates a browser against these sites, so it inherits the same cat-and-mouse: the sites and their embed hosts sit behind Cloudflare/DDoS-Guard anti-bot, rotate domains and encryption keys, and rate-limit, which constantly breaks scrapers and forces TLS-fingerprint spoofing, real-browser solvers, and proxy rotation. The lineage's endgame came on 13 March 2026 when hianime went offline amid an ACE crackdown and an $18.75M US judgment. For a legitimate builder the lesson is the architectural shape (CDN front, origin separation, an extractor/transcode tier, an m3u8 proxy/player) minus the evasion, replacing scraped embeds with licensed/self-hosted content on a legitimate CDN with signed HLS URLs.",
+    "components": [
+      {
+        "name": "Cloudflare reverse proxy / anti-bot edge",
+        "role": "CDN that hides the real origin IP and absorbs DDoS, but is also the choke point rights holders subpoena (DMCA subpoenas for operator identity) and courts order to geoblock; its own bot management is what breaks scrapers",
+        "examples": [
+          "Cloudflare free/pro reverse proxy in front of nearly all these sites",
+          "Turnstile / managed challenge / JS challenge on the providers",
+          "Court-ordered geoblocking returning HTTP 451 in IT/FR/BE/UK"
+        ]
+      },
+      {
+        "name": "Offshore / DMCA-ignored / bulletproof origin",
+        "role": "Hosts the actual app and DB behind Cloudflare; chosen in slow-to-honor-takedown jurisdictions. Community best practice keeps data on a normal server and only reverse-proxies through bulletproof IPs",
+        "examples": [
+          "Operator believed run from Vietnam (per MPA/ACE)",
+          "Offshore VPS used purely as a proxy front-end",
+          "Origin never exposed directly; only the Cloudflare edge is public"
+        ]
+      },
+      {
+        "name": "Disposable / rotating domains",
+        "role": "Brand and TLDs are treated as expendable, rotated on ad-network blacklisting, ISP dynamic+ injunctions, or domain seizure; audience migrated via Discord/redirects",
+        "examples": [
+          "zoro.to -> aniwatch.to (2023) -> hianime.to (2024)",
+          "Mirror/alt TLDs: hianime.nz, hianime.sx, hianime.mn, hianime.pe",
+          "Post-shutdown clones e.g. hianimetv.cfd appearing the next day"
+        ]
+      },
+      {
+        "name": "Embed / video host with rotating domains + encryption",
+        "role": "Separate same-operator streaming sub-service that serves the encrypted m3u8 and rotates its own domains and keys to break extractors",
+        "examples": [
+          "RabbitStream -> MegaCloud",
+          "megacloud.blog -> megacloud.tv migration",
+          "getSources endpoint with CryptoJS-AES encrypted payload + rotating _k key"
+        ]
+      },
+      {
+        "name": "Scraper / extractor tier (open source)",
+        "role": "Impersonates a browser to fetch HTML, resolve the embed, and decrypt the m3u8 URL; must be self-hosted because public instances get abused, rate-limited, and IP-blocked",
+        "examples": [
+          "consumet.ts (ZORO/Zoro provider) + api.consumet.org",
+          "ghoshRitesh12/aniwatch (lib) + aniwatch-api",
+          "MegaCloud key sources e.g. yogesh-hacker/MegacloudKeys keys.json"
+        ]
+      },
+      {
+        "name": "Anti-bot bypass tooling",
+        "role": "Used by scrapers to defeat Cloudflare/DDoS-Guard: solve JS challenges with a real browser, or spoof TLS/HTTP2 fingerprints with lightweight clients, plus proxy rotation",
+        "examples": [
+          "FlareSolverr (Selenium + undetected-chromedriver, returns cf cookies)",
+          "CycleTLS / got-scraping / curl_cffi for JA3/JA4 spoofing",
+          "puppeteer/playwright real-browser fetch; residential proxy rotation"
+        ]
+      },
+      {
+        "name": "m3u8 / CORS proxy + player",
+        "role": "Front-end can't fetch the cross-origin, referer-locked HLS directly, so a thin proxy rewrites playlists and injects headers; player (hls.js) consumes it",
+        "examples": [
+          "Generic m3u8 CORS proxies that rewrite segment URLs",
+          "Referer/Origin header injection to satisfy hotlink protection",
+          "hls.js / video.js in the browser"
+        ]
+      }
+    ],
+    "howItWorks": [
+      "Operator puts the public site (e.g. hianime.to) behind Cloudflare; the real origin runs on offshore/DMCA-ignored hosting and is never exposed, so takedowns/subpoenas hit Cloudflare or the registrar, not the box.",
+      "Video is not on the main site: the page embeds a separate same-operator host (RabbitStream -> MegaCloud). The browser hits an endpoint like megacloud.blog/embed-2/v3/e-1/getSources?id=...&_k=... that returns CryptoJS-AES encrypted JSON containing the real .m3u8 URL.",
+      "A scraper (consumet.ts ZORO provider / aniwatch-api) requests the site HTML, parses the episode/server list, resolves the MegaCloud embed, then decrypts getSources client-side using a key (often pulled from a community key repo) to recover the m3u8.",
+      "Because the m3u8 is referer/origin-locked and cross-origin, the front-end routes it through an m3u8 proxy that injects Referer/Origin headers and rewrites segment URLs so hls.js can play it.",
+      "When Cloudflare/DDoS-Guard challenges the scraper (403 / managed challenge / Turnstile), it either drives a real browser (FlareSolverr/puppeteer/playwright) to obtain cf_clearance cookies, or swaps to a TLS-fingerprint-spoofing HTTP client (CycleTLS, got-scraping, curl_cffi) so the JA3/JA4 + HTTP/2 fingerprint matches Chrome.",
+      "Requests are spread across rotating (ideally residential) proxies and sessions are rotated every ~50-100 requests to dodge rate limits and behavioral detection; the scraper is exposed as a self-hosted API because public shared instances get abused and IP-banned.",
+      "When the upstream changes a domain (megacloud.blog->megacloud.tv), rotates an encryption key, or changes HTML structure, the extractor breaks and maintainers ship a patch release \u2014 a continuous cat-and-mouse loop.",
+      "On the legal side, MPA/ACE files DMCA subpoenas (e.g. to Cloudflare and the Tonic .to registry) to unmask operators, obtains dynamic+/dynamic injunctions (India, EU) and domain seizures; the operator responds by rebranding to a fresh domain and migrating users \u2014 until the lineage was finally killed (hianime offline 13 Mar 2026 amid an $18.75M US judgment).",
+      "A legitimate builder mirrors the shape \u2014 CDN edge, origin separation, an ingest/transcode service producing HLS, an auth/entitlement + signed-URL m3u8 layer, hls.js player \u2014 but sources licensed/self-hosted content on a legitimate CDN (signed HLS) and drops the bypass/evasion entirely."
+    ],
+    "keyRepos": [
+      {
+        "name": "consumet/consumet.ts",
+        "url": "https://github.com/consumet/consumet.ts",
+        "whatItProvides": "TypeScript scraping library with a ZORO/Zoro (hianime) provider and siblings (gogoanime, animepahe, 9anime, allanime); the library is the recommended path because the public API is locked down"
+      },
+      {
+        "name": "consumet/api.consumet.org",
+        "url": "https://github.com/consumet/api.consumet.org",
+        "whatItProvides": "REST wrapper around consumet.ts; issue #486 PSA documents why the public instance was reduced to a ~30 req/min demo and users told to self-host (abuse + Cloudflare/IP-block reality)"
+      },
+      {
+        "name": "ghoshRitesh12/aniwatch-api",
+        "url": "https://github.com/ghoshRitesh12/aniwatch-api",
+        "whatItProvides": "Express/Hono API serving hianime data; README documents deploy targets (nodejs, docker, vercel, render, cloudflare-workers) and env vars like ANIWATCH_API_HOSTNAME (rate limit) and ANIWATCH_API_DEPLOYMENT_ENV; issues #97/#98 show 403/blocking on hosted deployments"
+      },
+      {
+        "name": "ghoshRitesh12/aniwatch",
+        "url": "https://github.com/ghoshRitesh12/aniwatch",
+        "whatItProvides": "The underlying scraping lib incl. src/extractors/megacloud.ts; issue #17 'Possible fix for the Megacloud issue' tracks the encryption/domain-rotation breakage (megacloud.blog->megacloud.tv, getSources v2/v3, key sourcing)"
+      },
+      {
+        "name": "yogesh-hacker/MegacloudKeys",
+        "url": "https://github.com/yogesh-hacker/MegacloudKeys",
+        "whatItProvides": "Community-maintained keys.json of MegaCloud decryption keys fetched at runtime by extractors to keep up with key rotation"
+      },
+      {
+        "name": "FlareSolverr/FlareSolverr",
+        "url": "https://github.com/FlareSolverr/FlareSolverr",
+        "whatItProvides": "Proxy server that solves Cloudflare/DDoS-Guard challenges using Selenium + undetected-chromedriver and returns HTML plus cf_clearance cookies for reuse by lightweight HTTP clients"
+      },
+      {
+        "name": "Danny-Dasilva/CycleTLS",
+        "url": "https://github.com/Danny-Dasilva/CycleTLS",
+        "whatItProvides": "Go+JS client to spoof JA3/JA4 TLS fingerprints so requests look like a real Chrome handshake instead of Node's default (which Cloudflare fingerprints and blocks)"
+      }
+    ],
+    "technologies": [
+      "Cloudflare (reverse proxy, WAF, Turnstile/managed challenge, rate limiting)",
+      "DDoS-Guard",
+      "Bulletproof / DMCA-ignored offshore hosting; Cloudflare Tunnel/R2/Stream as alternatives",
+      "JA3 / JA4 TLS fingerprinting and HTTP/2 SETTINGS-frame fingerprinting",
+      "CryptoJS AES (MegaCloud getSources payload encryption)",
+      "HLS / m3u8 + hls.js; m3u8 CORS/header-injection proxy",
+      "FlareSolverr (Selenium + undetected-chromedriver)",
+      "puppeteer / playwright real-browser automation",
+      "CycleTLS, got-scraping (Apify), curl_cffi for TLS-spoofed HTTP",
+      "Residential / rotating proxies; User-Agent + Referer/Origin spoofing",
+      "Node.js (Express/Hono), Docker, Vercel, Render, Cloudflare Workers deploy targets",
+      "DMCA subpoenas, dynamic+/dynamic injunctions, domain seizures (ACE/MPA/USTR)"
+    ],
+    "gotchas": [
+      "Default Node HTTP clients (axios, node-fetch, undici) share one non-browser TLS fingerprint; Cloudflare flags it at the TLS handshake BEFORE headers are read, so spoofing User-Agent alone is useless \u2014 you must spoof JA3/JA4 (CycleTLS/got-scraping/curl_cffi) or drive a real browser.",
+      "FlareSolverr is heavy and only partially effective (community tests ~55-70% of Cloudflare-protected domains), slow vs lightweight requests; cf_clearance cookies are IP+UA bound and expire.",
+      "Public shared scraper instances die fast: api.consumet.org was throttled to a ~30 req/min demo (issue #486) due to abuse; aniwatch-api on Vercel/serverless gets 403/blocked (issues #97/#98) because cloud egress IPs are flagged \u2014 self-hosting on a clean/residential IP is effectively required.",
+      "The embed host rotates domains AND encryption: RabbitStream->MegaCloud, megacloud.blog->megacloud.tv, getSources v2->v3 with a rotating _k client key; every rotation silently breaks extractors until a patch ships.",
+      "m3u8 URLs are referer/origin-locked and cross-origin, so direct browser playback fails (CORS/hotlink) without a proxy that rewrites segment URLs and injects Referer/Origin headers.",
+      "Cloudflare is a double-edged dependency: it hides the origin but is the exact party MPA/ACE subpoenas (alongside the .to/Tonic registry) to unmask operators, and courts order it to geoblock (451) in IT/FR/BE/UK.",
+      "Domain rotation is forced by ad-network blacklisting and ISP dynamic+ injunctions (India ~25-40% of traffic), not just seizures; losing the domain means losing SEO/bookmarks, so brands are migrated via Discord and redirects.",
+      "Aggressive scraping/rate-limit evasion plus operating infrastructure for unlicensed content carries real legal exposure; the hianime lineage ended 13 Mar 2026 with an $18.75M judgment and an ACE crackdown \u2014 the resilience tricks delay but do not prevent shutdown."
+    ],
+    "verification": {
+      "refuted": [
+        {
+          "claim": "1. hianime.to went offline 13 March 2026 amid an ACE crackdown and an $18.75M US District Court judgment; the exact judgment attribution/date come from secondary sites and should be re-verified.",
+          "status": "refuted",
+          "note": "The shutdown date (13 March 2026, 'It's time to say goodbye') and the ACE crackdown context are CONFIRMED (Wikipedia, TorrentFreak, USTR notorious-markets listing days earlier). But the $18.75M judgment is NOT against the HiAnime operator. The aggregator (OtakuKart) that the researcher relied on conflated two unrelated events: the HiAnime shutdown AND a separate $18.75M default judgment. That judgment, per TorrentFreak and ACE's own press release ('ace-secures-18-75-million-judgment-against-streaming-tv-now-operator'), was against William Freemon / Freemon Technology Industries, a Dallas IPTV operator ('Streaming TV Now'), signed 11 March 2026 in the U.S. District Court for the Northern District of Texas, in favor of Amazon/Netflix/Hollywood studios. It has nothing to do with HiAnime or anime. The researcher's instinct to re-verify was correct and the attribution is false.",
+          "sources": [
+            "https://en.wikipedia.org/wiki/HiAnime",
+            "https://torrentfreak.com/court-officially-orders-u-s-based-iptv-operator-to-pay-amazon-netflix-18-75-million/",
+            "https://otakukart.com/no-1-anime-website-hianime-shuts-down-amidst-unprecedented-global-crackdown-on-piracy/",
+            "https://torrentfreak.com/ace-targets-piracy-giant-hianime-to-and-dozens-of-other-streaming-sites-241008/"
+          ]
+        },
+        {
+          "claim": "3. Current MegaCloud specifics (megacloud.tv domain, getSources v3, &_k client-key param, yogesh-hacker/MegacloudKeys keys.json URL) change frequently and may already be stale.",
+          "status": "outdated",
+          "note": "The mechanism is real but the domain detail is already churning, exactly as the claim warns. Live aniwatch extractor used 'https://megacloud.blog/embed-2/v3/e-1/getSources?id=${sourceId}&_k=${clientKey}' (note: megacloud.BLOG, not .tv, with v3 path and &_k client key). Per community reports the megacloud.blog domain expired and streams moved BACK to megacloud.tv, with a 'MegaCloudFix' extension redirecting .blog->.tv. So both .tv and .blog have been in rotation; the v3/getSources/&_k structure is confirmed. The yogesh-hacker/MegacloudKeys keys.json (raw.githubusercontent.com/yogesh-hacker/MegacloudKeys/refs/heads/main/keys.json) was real and consumed by the aniwatch extractor. CRITICAL UPDATE: a Crunchyroll/VIZ DMCA notice (2026-03-23) targeted yogesh-hacker/MegacloudKeys, ghoshRitesh12/aniwatch and aniwatch-api, and GitHub removed 900+ repos/forks (~25 March 2026). Those repos are now taken down (GitHub returns 451), so the keys.json URL and the megacloud.ts source are likely dead/relocated. Treat all of these specifics as stale.",
+          "sources": [
+            "https://github.com/github/dmca/blob/master/2026/03/2026-03-23-crunchyroll.md",
+            "https://github.com/RAELIE1/MegaCloudFix",
+            "https://torrentfreak.com/github-nukes-900-anime-piracy-repos-and-forks-but-rejects-circumvention-claims/",
+            "https://github.com/ghoshRitesh12/aniwatch/blob/main/src/extractors/megacloud.ts"
+          ]
+        }
+      ],
+      "confirmed": [
+        "2. Operator believed based in Vietnam \u2014 MPA/ACE's stated belief, not confirmed fact.",
+        "5. FlareSolverr bypass success rate (~55-70%) is from a third-party 2026 benchmark blog, not authoritative.",
+        "6. CycleTLS performance figures (block rate 34%->under 1%, ~40ms/40MB overhead) come from a single DEV.to author's report, not independent benchmarks.",
+        "7. Cloudflare H1 2025 numbers (~125,000 DMCA reports, 54,000 actioned, 21,000 accounts terminated) are from Cloudflare's own transparency-report blog and reflect all hosted abuse, not anime-specific.",
+        "8. Post-shutdown clone domains (e.g. hianimetv.cfd) are unofficial copycats, not the original operator; current 'hianime' domains are unstable and should be assumed clone/compromised."
+      ],
+      "corrections": [
+        "CLAIM 1 (major): The $18.75M judgment is NOT against the HiAnime operator. It is a separate, unrelated default judgment against William Freemon / Freemon Technology Industries, a Dallas-based IPTV operator behind 'Streaming TV Now,' signed 11 March 2026 in the U.S. District Court for the Northern District of Texas, awarded to Amazon/Netflix/Hollywood studios (TorrentFreak; ACE press release 'ace-secures-18-75-million-judgment-against-streaming-tv-now-operator'). The OtakuKart/aggregator coverage conflated this IPTV ruling with the HiAnime shutdown, which happened ~2 days later (13 March 2026). Do NOT attribute any $18.75M judgment to HiAnime/zoro/aniwatch. HiAnime's offline event was driven by ACE DMCA subpoenas + USTR notorious-markets listing + the broader 2026 crackdown, not a monetary judgment against it.",
+        "CLAIM 3 (correction): The live aniwatch extractor's getSources endpoint used megacloud.BLOG, not megacloud.tv ('https://megacloud.blog/embed-2/v3/e-1/getSources?id=...&_k=...'). Per community reports megacloud.blog later expired and traffic moved (back) to megacloud.tv, with a redirect-fix extension. Both domains have been in rotation; cite neither as 'the' current domain.",
+        "CLAIM 7 (precision): The Cloudflare H1 2025 figures are best described as copyright/unauthorized-streaming DMCA reports across all hosted customers (driven by new rightsholder anti-streaming tooling), not generic 'all hosted abuse.' The claim's key point (not anime-specific) is correct, but 'all hosted abuse' overstates the category - these are specifically copyright/streaming reports."
+      ],
+      "additionalFindings": [
+        "NEW EVENT not in the original research: On ~23-25 March 2026, GitHub removed 900+ anime-piracy repositories and forks following a DMCA notice filed by Remove Your Media LLC on behalf of Crunchyroll and VIZ Media. The notice (github/dmca, 2026-03-23-crunchyroll.md) explicitly targeted yogesh-hacker/MegacloudKeys, ghoshRitesh12/aniwatch, and ghoshRitesh12/aniwatch-api (414+ forks), plus clones (yahyaMomin/hianime-API, IrfanKhan66/hianime-mapper, ayanrajpoot10/hianime-api, itzzzme/anime-api, etc.). Legal basis cited: 17 U.S.C. 512(c)(3) AND 1201(a)(2) anti-circumvention. Notably, GitHub COMPLIED but publicly REJECTED the 1201/DRM-circumvention framing, removing the repos on ordinary copyright grounds instead (TorrentFreak, Collider, CBR, Gigazine). This directly impacts the whole open-source scraper ecosystem the research describes: aniwatch/aniwatch-api/MegacloudKeys are now taken down on GitHub, which is why their README/.env.example/megacloud.ts return 451 and cannot be live-verified.",
+        "Sourcing fragility confirmed: the $18.75M error traces to OtakuKart, which hyperlinked the ACE 'Streaming TV Now' press release while writing about HiAnime - a textbook example of why the researcher's instruction to re-verify monetary/judgment attributions against TorrentFreak/ACE primary sources was the right call. Several aggregator sites (firesticktricks, respawn.outlookindia, comparatifr) repeat or remix this conflation.",
+        "HiAnime scale context for the report: ~153.5M visits in Feb 2026 (surpassing Crunchyroll's ~145.8M) and 300M+ in Sept 2024 per ACE/TorrentFreak; USTR added HiAnime to its 2025 Notorious Markets list in early March 2026, days before the 13 March shutdown - reinforcing that the shutdown was enforcement-pressure-driven rather than the result of a single court judgment.",
+        "FlareSolverr caveat worth surfacing in the report: success rate is not just 'non-authoritative' but genuinely bimodal across 2026 benchmarks (~55-70% in one, ~90-94% in others), and it is specifically weak against Cloudflare Turnstile. Any single number should be presented as a range with methodology caveats."
+      ]
+    },
+    "sources": [
+      {
+        "title": "Zoro.to: World's Largest Pirate Site Suddenly 'Acquired' & Rebranded (TorrentFreak)",
+        "url": "https://torrentfreak.com/zoro-to-worlds-largest-pirate-site-suddenly-acquired-rebranded-230704/"
+      },
+      {
+        "title": "Piracy Moghul Aniwatch Rebrands to HiAnime (TorrentFreak)",
+        "url": "https://torrentfreak.com/piracy-moghul-aniwatch-rebrands-to-hianime-240301/"
+      },
+      {
+        "title": "ACE Targets Piracy Giant HiAnime.to and Dozens of Other Streaming Sites (TorrentFreak)",
+        "url": "https://torrentfreak.com/ace-targets-piracy-giant-hianime-to-and-dozens-of-other-streaming-sites-241008/"
+      },
+      {
+        "title": "PSA: Public API (api.consumet.org) will be very limited (consumet issue #486)",
+        "url": "https://github.com/consumet/api.consumet.org/issues/486"
+      },
+      {
+        "title": "aniwatch-api (ghoshRitesh12) repo",
+        "url": "https://github.com/ghoshRitesh12/aniwatch-api"
+      },
+      {
+        "title": "aniwatch megacloud.ts extractor (ghoshRitesh12)",
+        "url": "https://github.com/ghoshRitesh12/aniwatch/blob/main/src/extractors/megacloud.ts"
+      },
+      {
+        "title": "Possible fix for the Megacloud issue (aniwatch issue #17)",
+        "url": "https://github.com/ghoshRitesh12/aniwatch/issues/17"
+      },
+      {
+        "title": "MegaCloud Key Extraction Analysis (Eggwite)",
+        "url": "https://eggwite.moe/blog/megacloud-key-extraction-analysis"
+      },
+      {
+        "title": "FlareSolverr - proxy server to bypass Cloudflare/DDoS-Guard",
+        "url": "https://github.com/FlareSolverr/FlareSolverr"
+      },
+      {
+        "title": "CycleTLS - spoof TLS/JA3 fingerprints (Danny-Dasilva)",
+        "url": "https://github.com/Danny-Dasilva/CycleTLS"
+      },
+      {
+        "title": "How to Bypass Cloudflare with TLS Fingerprinting in Node.js (DEV)",
+        "url": "https://dev.to/datakaz/how-to-bypass-cloudflare-with-tls-fingerprinting-in-nodejs-2pb2"
+      },
+      {
+        "title": "Cloudflare H1 2025 Transparency Report (streaming abuse / DMCA numbers)",
+        "url": "https://blog.cloudflare.com/h1-2025-transparency-report/"
+      },
+      {
+        "title": "You might NOT need a DMCA-ignored server (LowEndTalk reverse-proxy approach)",
+        "url": "https://lowendtalk.com/discussion/214097/you-might-not-need-a-dmca-ignored-server-my-custom-solution-explained"
+      },
+      {
+        "title": "HiAnime shuts down amid global piracy crackdown (OtakuKart)",
+        "url": "https://otakukart.com/no-1-anime-website-hianime-shuts-down-amidst-unprecedented-global-crackdown-on-piracy/"
+      },
+      {
+        "title": "HiAnime (Wikipedia)",
+        "url": "https://en.wikipedia.org/wiki/HiAnime"
+      }
+    ]
+  },
+  {
+    "layer": "Monetization",
+    "overview": "Free/ad-supported anime sites in the zoro.to -> aniwatch.to -> hianime.to lineage monetize almost entirely through high-volume, low-quality ad networks that mainstream advertisers and Google AdSense will not touch. The dominant format is the popunder/pop-tab ad (a window opened behind the page on the user's first click on the player), supplemented by banner/native ads, in-page push, redirect/interstitial \"social bar\" ads, and occasionally video pre-roll (VAST) inside the player. Because the content is pirated, the entire economy runs on AdSense-alternative networks (PopAds, PopCash, HilltopAds, Adsterra, ExoClick, PropellerAds/Monetag, Clickadu, Ad-Maven, RichAds) that accept copyright-infringing and adult-adjacent traffic, weekly/daily payouts, and crypto/PayPal cashout. Effective CPMs are low (roughly $0.10-$6 depending on geo/format, with US/UK popunder traffic at the high end), so revenue is driven by raw pageview volume. A significant slice of this inventory is malvertising (fake virus warnings, fake \"download\" buttons, ransomware droppers) which pays a premium, giving the niche its bad reputation. Most of these sites are deliberately ad-only with no premium/no-ads tier (HiAnime kept the whole library free), while a parallel licensed/legitimate AVOD path (Crunchyroll-style) uses VAST + server-side ad insertion (SSAI) and reputable demand at $5-$15 CPM but requires licensed content.",
+    "components": [
+      {
+        "name": "Popunder / pop-tab ad networks",
+        "role": "Primary revenue engine. A new tab/window is opened behind the active page (or a redirect on the page) on the user's first interaction with the player. Highest-paying format for this traffic class because it guarantees an impression per session. Triggered client-side via an onclick handler / window.open + window.location swap, often with a localStorage frequency cap so it fires once per session per user.",
+        "examples": [
+          "PopAds (popunder/pop-tab, dynamic bid auction, daily payout from $5)",
+          "PopCash",
+          "HilltopAds (Popunder + Direct Link + MultiTag)",
+          "Adsterra (Popunder)",
+          "PropellerAds / Monetag (OnClick popunder)",
+          "Clickadu",
+          "Ad-Maven",
+          "ExoClick / TrafficStars (popunder, lifestyle+entertainment+adult demand)"
+        ]
+      },
+      {
+        "name": "Banner / native / display ads",
+        "role": "Secondary fill placed around the player and in episode lists. Lower CPM than popunders; native units blend into thumbnails/recommendations. Often the same networks that supply popunders also serve banner/native fill.",
+        "examples": [
+          "Adsterra native + display banners",
+          "HilltopAds MultiTag banners",
+          "ExoClick display + native",
+          "PropellerAds banners"
+        ]
+      },
+      {
+        "name": "In-page push / 'Social Bar' / push notification ads",
+        "role": "Non-standard out-stream units (sticky bars, fake chat/notification widgets) that bypass ad blockers better than IAB banners and have higher CTR. Adsterra markets its Social Bar as 15-25% higher CTR than classic push.",
+        "examples": [
+          "Adsterra Social Bar",
+          "HilltopAds In-Page Push (no browser subscription needed)",
+          "PropellerAds/Monetag push & in-page push"
+        ]
+      },
+      {
+        "name": "Redirect / interstitial / direct-link ads",
+        "role": "Full-page redirects or 'Direct Link' URLs wired to download buttons, fake 'Continue/Play' buttons, and server/source switchers. CPC/CPA-based; also the main vector for malvertising. Practitioners explicitly advise placing direct-link 'download' buttons beneath the player.",
+        "examples": [
+          "HilltopAds Direct Link",
+          "Adsterra Direct Link",
+          "PopAds tab-under",
+          "fake 'download episode' buttons feeding CPA offers"
+        ]
+      },
+      {
+        "name": "Video pre-roll / VAST in player",
+        "role": "In-stream ad shown before the episode inside the custom HTML5/HLS player. Less common on illicit anime sites than popunders (harder to wire into a scraped m3u8 player, easier to block), but offered by adult/entertainment networks. The legitimate AVOD equivalent uses VAST + SSAI.",
+        "examples": [
+          "HilltopAds VAST Video / Video Slider",
+          "Adsterra video pre-roll (in-stream/out-stream)",
+          "ExoClick / TrafficStars in-stream video",
+          "legit: Aniview, Yospace SSAI"
+        ]
+      },
+      {
+        "name": "Malvertising layer",
+        "role": "A premium-paying subset of the popunder/redirect inventory: fake 'your device is infected' warnings, fake software updates, QR-code scams, and ransomware/banking-trojan droppers. Pays more than clean ads and is tolerated/facilitated by some intermediaries, which is why this content shows up on free streaming sites.",
+        "examples": [
+          "fake antivirus/'virus detected' popunders",
+          "fake browser/codec update prompts",
+          "calendar-push scam ads",
+          "ransomware droppers documented by Digital Citizens Alliance / White Bullet"
+        ]
+      },
+      {
+        "name": "Crypto miner (historical)",
+        "role": "Briefly used 2017-2019 to mine Monero in-browser via JavaScript while users watched, consuming visitor CPU. Largely dead after Coinhive shut down March 8, 2019; replaced by return to popunders.",
+        "examples": [
+          "Coinhive (JS Monero miner, launched Sept 2017, shut March 2019)",
+          "Coinhive clones / cryptojacking scripts"
+        ]
+      },
+      {
+        "name": "Premium / no-ads tier & donations",
+        "role": "Mostly ABSENT on the canonical illicit sites - HiAnime/aniwatch kept the full library free with no VIP episodes, monetizing purely via ads. Some sibling pirate sites and forks add Patreon/crypto donations or a paid 'no-ads' membership, but it is not the core model. This IS the model legitimate sites should use (SVOD/AVOD hybrid).",
+        "examples": [
+          "donation links / Patreon / crypto wallets on some forks",
+          "paid 'remove ads' membership (uncommon on this lineage)",
+          "legit hybrid: Crunchyroll free AVOD + paid SVOD"
+        ]
+      },
+      {
+        "name": "Legitimate / licensed monetization (target model)",
+        "role": "What a developer building the same shape with licensed/self-hosted content would use instead: reputable AVOD with VAST tags + SSAI so ads are stitched server-side into the HLS manifest (ad-blocker resistant), plus an SVOD paid tier. Requires content licenses; unlocks AdSense/Google Ad Manager and brand-safe demand at far higher CPM.",
+        "examples": [
+          "Google Ad Manager / AdSense (only for licensed content)",
+          "SSAI vendors (Yospace, AWS MediaTailor, Aniview)",
+          "AVOD/SVOD/FAST stack via OTT platforms (Muvi etc.)"
+        ]
+      }
+    ],
+    "howItWorks": [
+      "User lands on an episode page (e.g. hianime.to/watch/...); the page is a Next.js/SPA front end calling an API that returns the m3u8 HLS source + .vtt subtitles (the consumet/aniwatch-api shape) extracted from MegaCloud/RapidCloud.",
+      "Ad scripts from one or more networks (PopAds, HilltopAds, Adsterra, PropellerAds, etc.) are loaded in the page <head> or injected, each with the publisher's site/zone ID.",
+      "The first click anywhere on the player triggers a popunder: a client-side onclick handler calls window.open(ad_url) (the new tab goes behind) or swaps window.location to the ad while reopening the content - frequency-capped via localStorage so it fires ~once per session.",
+      "Banner/native and in-page-push/Social Bar units fill the space around the player and episode list, served programmatically by the same or additional networks.",
+      "Source/quality switch buttons, 'download', and fake 'Continue/Play' buttons are wired to Direct-Link/redirect URLs that fire interstitials or CPA offers (and are the main malvertising vector).",
+      "Optionally a VAST pre-roll plays inside the player before the stream; on illicit sites this is less common than popunders because it is easier to block and harder to wire into a scraped player.",
+      "Impressions/clicks are counted by each network; revenue accrues at the network's dynamic CPM/CPC for that geo+format. Publisher cashes out (often weekly or daily) via PayPal/wire/crypto - networks chosen specifically because they pay out fast and don't require clean-content vetting.",
+      "Revenue = pageviews x sessions x effective CPM; because per-impression rates are low, the operator optimizes for raw traffic volume and uses multiple domains/mirrors to survive takedowns and keep the ad accounts alive.",
+      "Legitimate variant: instead of popunders, a licensed site sends a VAST/VMAP ad request to an ad server (Google Ad Manager) and uses SSAI to stitch ad segments into the HLS manifest server-side, so ads survive ad blockers, plus offers a paid no-ads SVOD tier."
+    ],
+    "keyRepos": [
+      {
+        "name": "ghoshRitesh12/aniwatch-api",
+        "url": "https://github.com/ghoshRitesh12/aniwatch-api",
+        "whatItProvides": "Open-source API serving anime data from hianime.to; returns m3u8 HLS sources + .vtt subtitles. Shows the data/player shape that ad scripts are layered on top of (the API itself is ad-free; monetization lives in the front-end wrapper)."
+      },
+      {
+        "name": "ghoshRitesh12/aniwatch",
+        "url": "https://github.com/ghoshRitesh12/aniwatch",
+        "whatItProvides": "Anime scraper npm package for hianime.to powering the above API; demonstrates how the content layer is separated from the ad/monetization layer that a deploying front end adds."
+      },
+      {
+        "name": "consumet/consumet.ts",
+        "url": "https://github.com/consumet/consumet.ts",
+        "whatItProvides": "TS library with the ZORO/Zoro and gogoanime/animepahe/9anime providers; the canonical open-source extractor stack. Front-end sites built on it (e.g. ad-free clones like aniplaynow/airin) explicitly advertise 'no ads', contrasting the open-source ecosystem with the ad-monetized originals."
+      },
+      {
+        "name": "aniplaynow/airin",
+        "url": "https://github.com/aniplaynow/airin",
+        "whatItProvides": "Example open-source ad-free front end (Next.js + AniList) built on the consumet/anify APIs - illustrates that the open-source clones omit the popunder/ad layer that the commercial pirate sites monetize with."
+      }
+    ],
+    "technologies": [
+      "Popunder / pop-tab ads (window.open + window.location swap, onclick-triggered, localStorage frequency cap)",
+      "Direct Link / redirect / interstitial ads",
+      "In-page push / Social Bar / push notification ads",
+      "Banner + native programmatic display",
+      "VAST/VMAP video pre-roll (in-stream/out-stream)",
+      "Server-Side Ad Insertion (SSAI) - legitimate AVOD path, ad-blocker resistant",
+      "Google Ad Manager / AdSense (licensed content only)",
+      "Browser crypto mining via JavaScript (Coinhive, historical)",
+      "CPM / CPC / CPA pricing models",
+      "HLS (.m3u8) + .vtt player the ads wrap around"
+    ],
+    "gotchas": [
+      "Google AdSense / Google Ad Manager will refuse and ban pirated anime: Google policy explicitly prohibits 'unauthorized... streaming, sharing, copying or downloading of copyrighted content' and lists anime by name; pages hit with a valid DMCA notice are permanently blocked from serving AdSense. So mainstream demand is off the table for unlicensed content - this is the core reason the niche runs on AdSense alternatives.",
+      "Anime/free-content traffic is low-quality from an advertiser view (users want free stuff, heavy ad-block usage, non-buying intent), so even accepting networks pay low CPMs - practitioners report literally cents per day on 1k-5k impressions in cheap geos.",
+      "Popunders/redirects destroy UX and are the same channel as malvertising; ~78% of pirate sites in the Digital Citizens Alliance/White Bullet study served malware-laden ads, and pop-under malvertising alone accounted for ~$88M of ~$121M/yr malvertising revenue - this is the reputational and legal liability of the model.",
+      "Heavy ad-blocker usage means client-side popunders/banners are often blocked entirely; sites respond with anti-adblock walls, in-page push, and 'MultiTag' fallbacks. Only SSAI (server-stitched) reliably defeats blockers, and that needs a real ad server + licensed content.",
+      "Payout/account risk: networks can ban or shave (withhold) earnings; pirate operators mitigate with multiple domains/mirrors and fast-payout networks (PopAds daily, HilltopAds weekly from $20) and crypto cashout, but accounts and domains get seized (HiAnime/aniwatch shut down in early 2026).",
+      "Crypto mining is no longer viable: Coinhive died in March 2019, browsers and AV flag cryptojacking, and yields were tiny relative to CPU/UX cost - effectively a dead monetization channel.",
+      "Some 'accepting' intermediaries (PropellerAds, RichAds documented in the Unholy Triangle report) knowingly approve deceptive/fake-virus creatives; building on them inherits brand-safety and possible legal exposure even before the copyright issue.",
+      "For a legitimate build: the model only flips profitable when you have licenses - then you can use VAST+SSAI+Ad Manager at $5-$15 CPM brand-safe and add an SVOD no-ads tier, but content licensing cost/availability is the real barrier, not the ad tech."
+    ],
+    "verification": {
+      "refuted": [
+        {
+          "claim": "Claim that HiAnime/aniwatch shut down in March 2026 came from a single search-summary source and was not independently verified by fetching the site; status changes frequently.",
+          "status": "outdated",
+          "note": "The meta-claim (that the shutdown was unverified / single-source) is now superseded. The March 13, 2026 shutdown is corroborated by MULTIPLE independent sources, including the HiAnime Wikipedia article (citing TorrentFreak's reported farewell message and AnimeMojo), with a permanent closure circa June 1, 2026 after ~80 days inactive, and USTR adding HIANIME to the Notorious Markets list in March 2026. The 'great moments / time to say goodbye' farewell text matches across sources. The underlying caution (domains change frequently; copycat hianimetv.cfd etc. are unaffiliated) remains valid, but the shutdown itself is well-established as of June 2026.",
+          "sources": [
+            "https://en.wikipedia.org/wiki/HiAnime",
+            "https://x.com/Pirat_Nation/status/2061115489456165332",
+            "https://otakukart.com/no-1-anime-website-hianime-shuts-down-amidst-unprecedented-global-crackdown-on-piracy/"
+          ]
+        }
+      ],
+      "confirmed": [
+        "PopAds effective CPM ~$4-$6 US/UK popunder, ~$2-$4 other geos, payout from $5 daily; figures from network/affiliate-review pages and fluctuate by season/geo/quality.",
+        "HilltopAds minimum CPMs roughly $0.10-$2.50 by geo/targeting; weekly payout, $20 minimum; from HilltopAds blog/affiliate reviews.",
+        "Real-world anime-site earnings of 'cents per day on 1k-5k impressions' come from anecdotal BHW forum posts (one cheap-geo operator), not a representative sample.",
+        "Aggregate piracy figures ($1.3B/yr pirate ad revenue; ~$121M/yr malvertising min with $88M from popunders; top-5 sites ~$18.3M each) from the 2022 DCA + White Bullet 'Unholy Triangle' report (500-site dataset, ~2020-2021), anti-piracy agenda, order-of-magnitude.",
+        "Whether the current hianime/aniwatch front end serves video pre-roll (VAST) vs only popunder/banner/push was not confirmed from live source; inferred from network format menus and scraped-m3u8 player architecture.",
+        "Specific network roster on this exact operator (which of PopAds/HilltopAds/Adsterra/PropellerAds are live today) was not confirmed by inspecting live page requests; it is the standard niche set, not a verified per-site list.",
+        "Legitimate AVOD CPM $5-$15 for mid-tier streaming is a general OTT estimate (Muvi/Perion glossaries), not anime-specific; Crunchyroll's free AVOD reportedly ending Dec 31, 2025 per CBR/Dexerto/ANN."
+      ],
+      "corrections": [
+        "Claim 4 conflates two separate DCA reports. The $121M malvertising minimum AND the $88M-from-popunders figure are from the Sept 2022 'Unholy Triangle' report (500-site dataset, malware data collected April-May 2022). But the ~$1.3B/$1.34B aggregate pirate ad revenue AND the top-5-sites ~$18.3M-each figure are from the EARLIER Aug 2021 'Breaking Bads' report. Cite them as two distinct reports, not one.",
+        "The $88M popunder figure should be stated more precisely: the report says pop-under ads account for '$88 million of the $121 million they make a year from malvertising' - i.e. $88M is a subset of the malvertising total, not a separate revenue stream. The claim's phrasing ('$88M from popunders') is correct but should specify it is $88M of the $121M malvertising minimum.",
+        "Claim 5's framing is now outdated: the HiAnime March 13, 2026 shutdown is multi-source corroborated (Wikipedia/TorrentFreak/USTR Notorious Markets/multiple outlets), not a single unverified search summary. Update the manuscript to treat the shutdown as established fact with a permanent-closure date around June 1, 2026, while keeping the caveat about frequently-changing/copycat domains.",
+        "Claim 1's $4-$6 / $2-$4 CPM ranges are headline figures from affiliate-incentivized review pages; the same pages explicitly state real-world CPMs frequently fall under $1 for low-income geos. Present these as quoted maximums, not expected earnings.",
+        "PopAds is reported to have started banning warez/piracy domains, so despite being the canonical 'first network named' for piracy sites, it may not actually be live on current anime-piracy sites. This weakens any assertion that PopAds specifically monetizes these sites today (relevant to claims 1 and 7)."
+      ],
+      "additionalFindings": [
+        "The Unholy Triangle report names specific ad intermediaries as facilitators with dedicated case studies: PropellerAds (called among the biggest facilitators of malvertising on piracy sites) and RichAds (which investigators posing as shady advertisers found willing to serve overtly malicious creatives - 'All creatives were mainly produced by RichAds. In 2 months, there were 67 creatives total'). This directly supports the manuscript's claim that these networks accept copyright-infringing/malicious traffic, and gives named, citable primary-source evidence rather than just forum inference.",
+        "The DCA self-describes the $121M as a conservative MINIMUM, explicitly not extrapolated beyond the 500-site dataset (PDF: 'considered a minimum as it was estimated from the relatively small dataset of 500 piracy sites... This figure was not extrapolated'). This strengthens the manuscript's 'order-of-magnitude / minimum' framing and is worth quoting verbatim.",
+        "The open-source aniwatch scraper architecture is concretely documented: getEpisodeSources returns .m3u8 HLS files plus Referer/User-Agent headers and .vtt subtitles, organized by server (MegaCloud, vidstreaming) and category (sub/dub/raw); the MegaCloud extractor fetches decryption keys from an external GitHub repo. This is good primary evidence for the 'scraped-m3u8 custom player' description in the case study.",
+        "Crunchyroll is NOT fully exiting ad-supported anime - it keeps ad-supported linear FAST channels (The Crunchyroll Channel on Samsung TV Plus, LG Channels, Pluto TV, Roku Channel, Sling, Prime Video). The manuscript should say Crunchyroll is ending its free on-demand AVOD tier specifically, not abandoning AVOD entirely. Industry commentators explicitly warn this may push viewers back to piracy, which is directly relevant to the monetization-layer narrative.",
+        "Current (2026) CTV/AVOD benchmarks show premium AVOD/FAST inventory at $15-$45 CPM, well above the $5-$15 mid-tier figure. The $5-$15 range is genuinely the low/mid end and should be labeled as such; it understates what reputable premium anime AVOD inventory (e.g. Crunchyroll's own) could command."
+      ]
+    },
+    "sources": [
+      {
+        "title": "Unholy Triangle: From Piracy to Ads to Ransomware (Digital Citizens Alliance + White Bullet, Sept 2022)",
+        "url": "https://www.digitalcitizensalliance.org/clientuploads/directory/Reports/Unholy-Triangle-Report.pdf"
+      },
+      {
+        "title": "Pirate movie streaming sites generate billions in ad revenue (Onsist)",
+        "url": "https://www.onsist.com/blog/pirate-movie-streaming-sites-generate-billions-in-ad-revenue-every-year/"
+      },
+      {
+        "title": "Here's how piracy websites make money (Cybernews)",
+        "url": "https://cybernews.com/tech/piracy-websites-money-making-explained/"
+      },
+      {
+        "title": "PopAds Review 2026: $4 CPM & Daily Payouts for Publishers (affmaven)",
+        "url": "https://affmaven.com/popads-review/"
+      },
+      {
+        "title": "PopAds Publishers page (CPM/payout claims)",
+        "url": "https://www.popads.net/publishers.html"
+      },
+      {
+        "title": "Best CPM Rates on Popunders for Publishers 2026 (HilltopAds blog)",
+        "url": "https://hilltopads.com/blog/best-cpm-rates-on-popunders-for-publishers-of-hilltopads/"
+      },
+      {
+        "title": "Maximize Popunder Monetization: Full Guide (Adsterra)",
+        "url": "https://adsterra.com/blog/popunder-traffic-monetization/"
+      },
+      {
+        "title": "28 Highest-Paying AdSense Alternatives for Publishers in 2026 (Adsterra)",
+        "url": "https://adsterra.com/blog/adsense-alternatives/"
+      },
+      {
+        "title": "Best Ad networks for anime streaming website / methods for monetizing (BlackHatWorld thread)",
+        "url": "https://www.blackhatworld.com/seo/best-ad-networks-for-anime-streaming-website-or-methods-for-monetizing-one.1573822/"
+      },
+      {
+        "title": "Google Advertising Policies - Copyrights (AdSense prohibits anime/copyright infringement)",
+        "url": "https://support.google.com/adspolicy/answer/6018015?hl=en"
+      },
+      {
+        "title": "Google Publisher Policies (AdSense prohibited content)",
+        "url": "https://support.google.com/adsense/answer/10502938?hl=en"
+      },
+      {
+        "title": "The End of Coinhive; the end of cryptojacking? (Gen Digital)",
+        "url": "https://www.gendigital.com/blog/insights/leadership-perspectives/the-end-of-coinhive-the-end-of-cryptojacking"
+      },
+      {
+        "title": "Truth in Web Mining: Profitability of Cryptominers as a Web Monetization Model (arXiv)",
+        "url": "https://arxiv.org/pdf/1806.01994"
+      },
+      {
+        "title": "Pop Under Code 2020 (JamesBachini.com - window.open/location popunder implementation)",
+        "url": "https://jamesbachini.com/pop-under-code/"
+      },
+      {
+        "title": "ghoshRitesh12/aniwatch-api (m3u8/.vtt source shape the ads wrap around)",
+        "url": "https://github.com/ghoshRitesh12/aniwatch-api"
+      },
+      {
+        "title": "AVOD vs SVOD vs FAST: Which Monetization Model Fits Your OTT Business? (Muvi)",
+        "url": "https://www.muvi.com/blogs/avod-vs-svod-vs-fast/"
+      },
+      {
+        "title": "Crunchyroll Updates Statement on Advertising VOD Policy (Anime News Network)",
+        "url": "https://www.animenewsnetwork.com/news/2022-09-23/crunchyroll-updates-statement-on-advertising-vod-policy/.190074"
+      },
+      {
+        "title": "SSAI & SGAI - Yospace (server-side ad insertion for legit AVOD)",
+        "url": "https://www.yospace.com/ssai"
+      },
+      {
+        "title": "Is Hianime Safe? 2026 Review: Malware, Privacy & Legal Risks (BearVPN)",
+        "url": "https://bearvpn.com/blog/is-hianime-safe/"
+      }
+    ]
+  },
+  {
+    "layer": "Legal landscape & the legitimate way to build a hianime-style anime streaming product",
+    "overview": "The zoro.to -> aniwatch.to -> hianime.to lineage was, at its 2024-2026 peak, \"almost certainly the world's largest pirate site\" (364M+ monthly visits, more than Disney+), operated out of Vietnam. It is straightforward copyright infringement: it hosts/streams licensed anime without authorization and monetizes via ads. That exposure is real and escalating \u2014 USTR Notorious Markets listing (2024 and 2025), ACE/MPA/CODA takedowns, and the eventual shutdown around March-June 2026. In the US, operating a for-profit unauthorized streaming service is now a felony (Protecting Lawful Streaming Act of 2020, up to 5-10 years), and operators of comparable sites have been criminally convicted abroad (B9GOOD, Bato.to). A developer can replicate the hianime UX (fast catalog browse, AniList-rich metadata, episode grid, in-page HLS player, watch tracking) without the legal exposure by choosing a defensible content layer: a streaming-free metadata/tracker/discovery site, a self-hosted \"bring your own files\" media-server frontend (Jellyfin/Plex shape), aggregation of only officially-licensed free sources (Muse Asia/Ani-One YouTube, FAST channels, public domain), or \u2014 far harder \u2014 actually licensing content (library packages are the only realistic indie entry point). The most defensible indie shape is a metadata/discovery + tracker app that links out to legal sources and optionally fronts the user's own Jellyfin library.",
+    "components": [
+      {
+        "name": "The infringing model (what to NOT copy)",
+        "role": "The hianime/consumet/aniwatch-api stack: scrape licensed anime, extract HLS from MegaCloud/RapidCloud, proxy m3u8/TS through your own server to defeat referer/CORS, serve to an ad-monetized SPA. This is the source of legal liability: unauthorized reproduction + public performance, and (in the US) potential criminal felony for the for-profit operator.",
+        "examples": [
+          "Hosting/streaming copyrighted episodes without a license = direct infringement",
+          "Server-side m3u8 proxy that re-serves studio content = a reproduction/transmission, undercuts any 'we just link' defense",
+          "Ad monetization establishes the 'commercial' / 'financial benefit' element regulators and PLSA care about"
+        ]
+      },
+      {
+        "name": "DMCA Section 512 safe harbor (and why pirate sites do not get it)",
+        "role": "17 U.S.C. 512(c) shields US hosts that store user-uploaded content IF they: designate a DMCA agent with the Copyright Office, do notice-and-takedown expeditiously, have and actually enforce a repeat-infringer termination policy, lack actual/red-flag knowledge, and do not receive a financial benefit while having the right/ability to control. Sites curated by the operator (not genuinely user-uploaded) and built primarily to serve infringing content fail on knowledge, willful blindness, and the 'designed for infringement' factor.",
+        "examples": [
+          "Required: registered 512 agent at copyright.gov, takedown workflow, written + enforced repeat-infringer policy",
+          "Disqualifiers: willful blindness, ad revenue tied to infringing content, curatorial control",
+          "Safe harbor protects a neutral UGC host, not an operator who hand-builds an anime catalog"
+        ]
+      },
+      {
+        "name": "Route 1 \u2014 License content (hardest)",
+        "role": "Become a real licensee. Anime rights sit with a Japanese production committee (seisaku iinkai); deals are territory/window/platform-type specific (SVOD/AVOD/FAST). Simulcast is gatekept and expensive; the only realistic indie door is library/catalog packages of older titles.",
+        "examples": [
+          "Simulcast top-tier: ~$1M-$5M+/season NA SVOD; mid-tier ~$100K-$1M",
+          "New seasonal w/ low awareness ~$15K-$100K; catalog 5+ yrs ~$5K-$50K/series",
+          "Sub-agents/distributors add 3-5 months and 15-20% markup; library packages = most accessible AVOD/FAST entry point"
+        ]
+      },
+      {
+        "name": "Route 2 \u2014 Metadata / tracker / discovery site (AniList-shape)",
+        "role": "Build the browse/search/recommend/track UX with NO video. Pull catalog/airing/character data from AniList GraphQL (or MAL/Jikan, AniDB, TheTVDB). This is the cleanest legal posture: you reproduce facts + small cover art under license/fair-use norms, not the works themselves. Add 'where to watch' deep links to legal services.",
+        "examples": [
+          "AniList GraphQL single endpoint https://graphql.anilist.co; OAuth2 for user lists",
+          "Mirror AniList's own product: lists, scores, airing schedule, recommendations",
+          "JustWatch-style 'available on Crunchyroll/Netflix/Muse Asia' availability rows"
+        ]
+      },
+      {
+        "name": "Route 3 \u2014 Self-hosted 'bring your own files' frontend (Jellyfin/Plex-shape)",
+        "role": "Ship software, not content. A media-server frontend the user points at their OWN legally-obtained files. The user is the only one reproducing/streaming, privately, to themselves. This is the Jellyfin/Plex/Streamyfin model and it gives the full hianime in-browser-player UX legally because there is no public performance and no operator-hosted catalog.",
+        "examples": [
+          "Jellyfin (GPL self-hosted server) + a custom anime-skinned web/mobile client",
+          "Anime metadata via Shokofin/Shoko, jellyfin-plugin-anime (AniList/AniDB/MAL/TVDB), MyAnimeSync for MAL progress sync",
+          "Jellyseerr-style request UI; you distribute only the app, never the episodes"
+        ]
+      },
+      {
+        "name": "Route 4 \u2014 Aggregate only legal free sources (AVOD/FAST/public domain)",
+        "role": "Index and embed officially-uploaded free anime: licensor YouTube channels (Muse Asia/Muse Communication, Ani-One/Medialink), FAST channels (Crunchyroll Channel on Pluto TV / Roku Channel / Samsung TV Plus, RetroCrush), Tubi/Pluto, and genuine public-domain works. Use official embeds/APIs, respect geo-locks, never re-host.",
+        "examples": [
+          "YouTube IFrame Player API embeds of Muse Asia / Ani-One uploads (region-locked to SEA/India/ME \u2014 geo aware)",
+          "FAST/AVOD: Crunchyroll Channel, RetroCrush, Tubi, Pluto TV anime channels",
+          "Public domain: pre-1953 / lapsed works only \u2014 narrow but zero-risk"
+        ]
+      },
+      {
+        "name": "Secondary/inducement liability (the link-out trap)",
+        "role": "Even a streaming-free site can be liable under MGM v. Grokster inducement if its design/messaging shows intent to foster infringement plus actual infringement. Linking to known pirate streams, or marketing 'watch free full episodes', re-creates exposure. Defensibility comes from linking only to authorized sources and not designing the product around infringement.",
+        "examples": [
+          "Grokster two-prong: (1) intent to cause infringement (2) actual direct infringement",
+          "'Mere knowledge of infringing potential' is NOT enough \u2014 but curated links to pirate hosts can be",
+          "Keep deep links pointed at Crunchyroll/Netflix/official YouTube, not at MegaCloud-style embeds"
+        ]
+      }
+    ],
+    "howItWorks": [
+      "Diagnose the liability source: in the pirate stack the legal problem is the CONTENT layer (unauthorized hosting/streaming + ad monetization), not the UX layer. The browse/search/player UX is legally neutral and fully reusable.",
+      "Pick a content layer by risk tolerance: (4)+(3) for an indie = lowest risk; (2) metadata-only = very low; (1) licensing = lowest legal risk but near-impossible economics for an indie.",
+      "For the metadata/tracker product: register an AniList API client, run OAuth2, query the single GraphQL endpoint for catalog/airing/character/recommendation data, respect the 90 req/min limit and the commercial-license threshold (>$150/mo revenue requires emailing AniList for a commercial license).",
+      "Render the hianime-style UI on top of metadata: seasonal grid, search, genre filters, detail page with synopsis/characters/relations, user watchlist + scores synced via OAuth \u2014 exactly AniList's own architecture, which runs on its own public API.",
+      "Add legal 'where to watch': map each title to availability on Crunchyroll/Netflix/Muse Asia/Ani-One/FAST channels (JustWatch-style) and deep-link out; never embed pirate players.",
+      "For actual video without licensing: ship the self-hosted route \u2014 distribute a Jellyfin-backed client/skin; the user runs the server on their own hardware against their own files, enriches with Shokofin/jellyfin-plugin-anime metadata, and streams privately to themselves.",
+      "For legal free streaming inside your site: embed official sources via sanctioned mechanisms \u2014 YouTube IFrame API for Muse Asia/Ani-One, FAST/AVOD partner embeds \u2014 and enforce geo-restrictions rather than bypassing them.",
+      "If you ever host any user-contributed media: claim 512 safe harbor properly \u2014 designate a DMCA agent with the US Copyright Office, implement notice-and-takedown, publish AND enforce a repeat-infringer policy, avoid willful blindness, and do not tie ad revenue to infringing items.",
+      "Document non-infringing intent: clear ToS, authorized-source-only linking, no 'free full episodes' marketing \u2014 this is your Grokster inducement defense."
+    ],
+    "keyRepos": [
+      {
+        "name": "AniList API (docs + GraphQL)",
+        "url": "https://docs.anilist.co/",
+        "whatItProvides": "Free GraphQL anime/manga metadata API (500k+ entries: titles, characters, staff, studios, airing schedule, recommendations, user lists). Single endpoint https://graphql.anilist.co, OAuth2 for user data. 90 req/min limit; commercial license required above ~$150/mo revenue. The reference architecture for a legal metadata/tracker site."
+      },
+      {
+        "name": "Jellyfin",
+        "url": "https://jellyfin.org/",
+        "whatItProvides": "Free/GPL self-hosted media server \u2014 the legal backbone for the 'bring your own files' route. Scans the user's own library, fetches metadata, transcodes, and streams to clients; you build an anime-skinned frontend on top."
+      },
+      {
+        "name": "jellyfin-plugin-anime",
+        "url": "https://github.com/jellyfin-archive/jellyfin-plugin-anime",
+        "whatItProvides": "Anime metadata provider plugin for Jellyfin pulling from AniList/AniDB/MAL(Jikan)/TVDB/Fanart \u2014 gives a self-hosted library the rich metadata that makes a hianime-style UI possible (now archived; Shokofin is the active alternative)."
+      },
+      {
+        "name": "awesome-jellyfin",
+        "url": "https://github.com/awesome-jellyfin/awesome-jellyfin",
+        "whatItProvides": "Curated list of Jellyfin plugins/clients/themes including anime metadata aggregators, Shokofin (Shoko Server integration), MyAnimeSync (Jellyfin<->MyAnimeList progress sync), and Streamyfin \u2014 the building blocks for a legal self-hosted anime frontend."
+      },
+      {
+        "name": "US Copyright Office \u2014 Section 512",
+        "url": "https://www.copyright.gov/512/",
+        "whatItProvides": "Authoritative DMCA safe-harbor resources: notice-and-takedown system, DMCA-agent designation, repeat-infringer and knowledge requirements that any UGC-hosting variant must satisfy."
+      },
+      {
+        "name": "Protecting Lawful Streaming Act (Wikipedia)",
+        "url": "https://en.wikipedia.org/wiki/Protecting_Lawful_Streaming_Act",
+        "whatItProvides": "Summary of the 2020 US law making large-scale commercial unauthorized streaming a felony (up to 5/10 years); defines the 'commercial, primarily-for-infringement' criteria that pirate operators meet and legitimate apps must avoid."
+      }
+    ],
+    "technologies": [
+      "AniList GraphQL API (https://graphql.anilist.co, OAuth2)",
+      "MyAnimeList / Jikan API, AniDB, TheTVDB (alternative metadata sources)",
+      "Jellyfin (GPL self-hosted media server) + Plex/Emby ecosystem",
+      "Shokofin / Shoko Server, MyAnimeSync, Streamyfin (Jellyfin anime plugins/clients)",
+      "YouTube IFrame Player API (embedding official Muse Asia / Ani-One channels)",
+      "FAST/AVOD platforms: Pluto TV, The Roku Channel, Samsung TV Plus, Tubi, RetroCrush (Crunchyroll Channel distribution)",
+      "JustWatch-style availability mapping for legal 'where to watch' deep links",
+      "DMCA Section 512 compliance tooling (registered agent, takedown workflow, repeat-infringer policy)",
+      "HLS / video.js / hls.js player UI (the UX layer \u2014 legal regardless of source, only the content origin matters)"
+    ],
+    "gotchas": [
+      "Server-side m3u8/TS proxying of licensed content is itself a reproduction/transmission \u2014 it is the single most legally damning piece of the pirate stack and destroys any 'we only link' defense.",
+      "Ad monetization is what makes the operator 'commercial' under the Protecting Lawful Streaming Act and supplies the 'direct financial benefit' that breaks DMCA safe harbor \u2014 monetizing infringing content is uniquely dangerous.",
+      "DMCA safe harbor does NOT cover an operator-curated catalog; it only covers genuinely user-uploaded content with takedown + enforced repeat-infringer policy + no willful blindness. Pirate sites fail every prong.",
+      "Linking out is not automatically safe: under MGM v. Grokster, intent-to-induce + actual infringement creates secondary liability, so a 'tracker' that deep-links to pirate embeds or markets 'free full episodes' re-acquires the exposure it tried to avoid.",
+      "AniList is free only for non-commercial use; above ~$150/mo revenue you must obtain a commercial license (email AniList) \u2014 a metadata business cannot just scrape and monetize.",
+      "Official free YouTube channels (Muse Asia, Ani-One) are heavily geo-locked to SEA/India/Middle East; a US/EU-facing aggregator will hit region blocks, and bypassing geo-restrictions reintroduces ToS/legal problems.",
+      "Crunchyroll removed its free ad-supported tier on Jan 1, 2026 (free anime now mainly via FAST channels), so 'free legal Crunchyroll embed' is no longer a viable building block \u2014 verify current tier status.",
+      "Crunchyroll has no official public developer API/partner program; community libraries are reverse-engineered and violate ToS \u2014 not a legitimate integration path.",
+      "Public domain anime is a very narrow set (lapsed/very old works) \u2014 not a catalog you can build a hianime-scale product on.",
+      "Indie licensing is realistically limited to cheap catalog/library packages; production committees gate simulcast, and sub-agents add months + 15-20% markup, so the economics rarely close for a solo dev.",
+      "Enforcement is real and rising: USTR Notorious Markets listings, ACE/MPA/CODA coordinated takedowns (AnimeFlix, Fmovies/Aniwave, 16 Brazil sites), and criminal convictions of operators abroad (B9GOOD operator jailed; Bato.to operator arrested)."
+    ],
+    "verification": {
+      "refuted": [],
+      "confirmed": [
+        "Shutdown dates: hianime went offline ~March 13, 2026 and permanently shut ~June 1, 2026; status fluid/disputed.",
+        "USTR Notorious Markets listed hianime in BOTH the 2024 and 2025 reports.",
+        "'World's largest pirate site' / 364M+ monthly visits surpassing Disney+; figures are SimilarWeb-style estimates that vary by month/source.",
+        "Crunchyroll removed its free ad-supported tier effective Jan 1, 2026 (free streaming ended Dec 31, 2025).",
+        "Anime licensing price bands ($15K-$100K new seasonal, $5K-$50K catalog, $1M-$5M+ tier-1 simulcast) come from one vendor (Vitrina) blog and are illustrative ranges, not authoritative rate cards.",
+        "AniList rate limit = 90 req/min and commercial threshold ~$150/mo revenue.",
+        "jellyfin-plugin-anime is archived; Shokofin and the awesome-jellyfin anime aggregator are the current maintained paths."
+      ],
+      "corrections": [
+        "USTR wording: The phrase 'priority notorious streaming site' / 'Priority' does NOT appear in the body of the 2025 USTR Notorious Markets PDF (0 hits when extracting the full 61-page text). That designation comes from press coverage (CBR/FandomWire/GameRant), not the USTR document itself. Do not attribute 'priority' to the USTR report as a quote.",
+        "AniList rate limit nuance: 90 req/min is the NOMINAL limit, but AniList's own docs state the API is 'currently in a degraded state and limited to 30 requests per minute.' Any build-time implementation should target 30/min, not 90/min, until AniList lifts the degraded state.",
+        "Jellyfin deprecation pointer: jellyfin-plugin-anime's official replacement list is the four split plugins (jellyfin-plugin-anidb, -anisearch, -anilist, -kitsu), NOT Shokofin. Shokofin is a separate maintained path (Shoko-Server backed). Both are current, but they are distinct recommendations \u2014 don't conflate the archive note with Shokofin.",
+        "Traffic figure precision: the '364M' peak is specifically October 2024 (TorrentFreak); it is not a stable monthly average. The site's '209.5M average (Jun-Aug 2024)' and ~244M (Aug 2025) are different snapshots. The researcher's '364M+ monthly' should be qualified as a peak month, not a sustained figure.",
+        "Crunchyroll free-tier date precision: free ad-supported streaming ended December 31, 2025; paid subscription became mandatory January 1, 2026. Both framings ('ends Dec 31, 2025' and 'removed Jan 1, 2026') are correct and refer to the same change."
+      ],
+      "additionalFindings": [
+        "The 2024 USTR PDF confirms the FULL lineage in the researcher's context as an official-source quote: zoro.to (shut down July 2023 by rightsholders/anti-piracy associations) -> aniwatch.to -> HiAnime (rebranded March 2024), 'run from Vietnam.' This corroborates the 'operated out of Vietnam' and the zoro->aniwatch->hianime chain directly from a primary government source, not just press.",
+        "Aniwatch (predecessor) was on the 2023 USTR NML, so the brand family has been USTR-listed across 2023 (Aniwatch), 2024 (HiAnime), and 2025 (HiAnime) \u2014 three consecutive reports under the lineage, stronger than the '2024 and 2025' claim implies.",
+        "ACE/anti-piracy escalation corroborated: secondary sources tie the March 13, 2026 shutdown timing to an ACE-secured $18.75M US District Court judgment against a piracy operator reported around the same date \u2014 consistent with the researcher's 'ACE/MPA/CODA takedowns' narrative (though the $18.75M judgment's exact defendant linkage to HiAnime is press-asserted, not verified to a court docket here).",
+        "USTR 2025 list scope: the 2025 Notorious Markets List identifies 37 online + 32 physical markets (per CBR summary of the report), useful context for how selective the listing is.",
+        "Defensibility note for the legit-path thesis: the Crunchyroll free-tier removal (Jan 1 2026) is repeatedly cited in coverage as a piracy-driver risk \u2014 which strengthens the market case for the researcher's proposed legal metadata/discovery + 'bring your own files' (Jellyfin/Plex-shape) + officially-licensed-free-source aggregation app, since the legal free entry point in the market just narrowed.",
+        "AniList Terms of Use page (docs.anilist.co/guide/terms-of-use) returns HTTP 403 to automated fetch; the $150/month commercial-license term was verified via the GitBook mirror and consistent search snippets rather than a direct fetch of the canonical page. A human should confirm on the live page before relying on the exact figure contractually."
+      ]
+    },
+    "sources": [
+      {
+        "title": "HiAnime - Wikipedia (zoro->aniwatch->hianime lineage, ACE, USTR, shutdown, Vietnam operator)",
+        "url": "https://en.wikipedia.org/wiki/HiAnime"
+      },
+      {
+        "title": "CBR \u2014 HiAnime Listed in US Government 'Notorious Markets' Report 2025",
+        "url": "https://www.cbr.com/hianime-america-government-notorious-market-list-2025/"
+      },
+      {
+        "title": "Anime News Network \u2014 CODA/Brazil 16 anime sites + ACE/Vietnam Fmovies/Aniwave takedowns",
+        "url": "https://www.animenewsnetwork.com/news/2024-10-06/coda-works-with-brazil-to-shut-down-16-anime-piracy-sites-ace-works-with-vietnam-to-shut-down-film-/.216107"
+      },
+      {
+        "title": "Advanced Television \u2014 ACE shutters AnimeFlix (Finland, 7-13M monthly visits)",
+        "url": "https://www.advanced-television.com/2024/08/16/ace-shutters-illicit-anime-site/"
+      },
+      {
+        "title": "CBR \u2014 Japan prosecutes major overseas anime piracy site (B9GOOD) for first time",
+        "url": "https://www.cbr.com/japan-overseas-anime-piracy-prosecute-first-time/"
+      },
+      {
+        "title": "Protecting Lawful Streaming Act - Wikipedia (felony, up to 5/10 yrs, commercial criteria)",
+        "url": "https://en.wikipedia.org/wiki/Protecting_Lawful_Streaming_Act"
+      },
+      {
+        "title": "US Copyright Office \u2014 Section 512 safe harbor, notice-and-takedown, repeat-infringer",
+        "url": "https://www.copyright.gov/512/"
+      },
+      {
+        "title": "Congress.gov CRS \u2014 DMCA Safe Harbor for Online Service Providers overview",
+        "url": "https://www.congress.gov/crs-product/IF11478"
+      },
+      {
+        "title": "MGM Studios v. Grokster - Wikipedia (inducement / secondary liability)",
+        "url": "https://en.wikipedia.org/wiki/MGM_Studios,_Inc._v._Grokster,_Ltd."
+      },
+      {
+        "title": "AniList API Docs (GraphQL metadata, single endpoint, OAuth2)",
+        "url": "https://docs.anilist.co/"
+      },
+      {
+        "title": "AniList API \u2014 Rate Limiting (90 req/min)",
+        "url": "https://docs.anilist.co/guide/rate-limiting"
+      },
+      {
+        "title": "AniList API \u2014 Terms of Use (non-commercial free; commercial license above revenue threshold)",
+        "url": "https://docs.anilist.co/guide/terms-of-use"
+      },
+      {
+        "title": "Jellyfin \u2014 The Free Software Media System (self-hosted route)",
+        "url": "https://jellyfin.org/"
+      },
+      {
+        "title": "jellyfin-plugin-anime (AniList/AniDB/MAL/TVDB metadata provider)",
+        "url": "https://github.com/jellyfin-archive/jellyfin-plugin-anime"
+      },
+      {
+        "title": "awesome-jellyfin (Shokofin, MyAnimeSync, Streamyfin, anime metadata plugins)",
+        "url": "https://github.com/awesome-jellyfin/awesome-jellyfin"
+      },
+      {
+        "title": "Vitrina \u2014 How Anime Licensing Actually Works (production committee, windows, price bands)",
+        "url": "https://vitrina.ai/blog/how-does-anime-licensing-work/"
+      },
+      {
+        "title": "Meme0 \u2014 Where to Watch Anime Free Legally 2026 (Muse Asia, Ani-One, FAST channels, Crunchyroll free-tier removal)",
+        "url": "https://www.meme0.com/blog/free-legal-anime-streaming-2026"
+      },
+      {
+        "title": "ONE Esports \u2014 Best legal anime YouTube channels (Muse Asia, Ani-One)",
+        "url": "https://www.oneesports.gg/anime/best-anime-youtube-channels-watch-free/"
+      }
+    ]
+  }
+]

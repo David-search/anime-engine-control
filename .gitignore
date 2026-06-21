@@ -1,0 +1,14 @@
+.env
+.env.local
+.env.*.local
+
+# Local clone-on-demand workspace (if used)
+work/
+
+*.log
+logs/
+.DS_Store
+.idea/
+.vscode/
+*.swp
+__pycache__/
