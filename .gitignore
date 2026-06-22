@@ -2,11 +2,14 @@
 .env.local
 .env.*.local
 
-# Local clone-on-demand workspace (if used)
+# Clone-on-demand workspace populated by /work-on
 work/
 
+# Logs from local probes / runs
 *.log
 logs/
+
+# Editor / OS noise
 .DS_Store
 .idea/
 .vscode/

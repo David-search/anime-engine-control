@@ -1,0 +1,49 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Required repo secrets:
+#   SERVER_SSH_KEY           - private key for root@70.30.158.46:43730 (vast-canada-2)
+#   NEXT_PUBLIC_BACKEND_URL  - public backend URL baked into the build
+#                              (http://70.30.158.46:43577)
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build & save image
+        run: |
+          docker build \
+            --build-arg NEXT_PUBLIC_BACKEND_URL=${{ secrets.NEXT_PUBLIC_BACKEND_URL }} \
+            -t anime-engine-frontend:latest .
+          docker save anime-engine-frontend:latest | gzip > frontend.tar.gz
+
+      - name: Copy image to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: 70.30.158.46
+          port: 43730
+          username: root
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: frontend.tar.gz
+          target: /home/anime/frontend/
+
+      - name: Deploy on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 70.30.158.46
+          port: 43730
+          username: root
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /home/anime/frontend
+            docker load -i frontend.tar.gz
+            docker compose up -d --no-build
+            rm -f frontend.tar.gz
+            docker image prune -f

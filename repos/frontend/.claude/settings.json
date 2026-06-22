@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run dev:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm run lint:*)",
+      "Bash(npm run start:*)",
+      "Bash(npm install:*)",
+      "Bash(npm ci:*)",
+      "Bash(curl -sS http://localhost:3000/*)",
+      "Bash(curl -fsS http://localhost:3000/*)",
+      "Bash(curl -sS http://localhost:8003/*)",
+      "Bash(curl -fsS http://localhost:8003/*)",
+      "Bash(curl -sS http://70.30.158.46:43879/*)",
+      "Bash(curl -fsS http://70.30.158.46:43879/*)",
+      "Bash(docker compose up -d --build:*)",
+      "Bash(docker compose ps:*)",
+      "Bash(docker compose logs:*)",
+      "Bash(docker logs *anime-frontend*)",
+      "Bash(docker exec anime-frontend:*)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push origin main --force:*)",
+      "Bash(docker rm:*)",
+      "Bash(docker volume rm:*)",
+      "Bash(docker restart mongodb:*)",
+      "Bash(docker restart elasticsearch:*)"
+    ]
+  }
+}

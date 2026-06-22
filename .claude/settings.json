@@ -1,0 +1,73 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(source .env*)",
+      "Bash(set -a && source .env*)",
+      "Bash(git -C work/*:*)",
+      "Bash(gh repo clone *David-search/*:*)",
+      "Bash(ssh -p 43730 *)",
+      "Bash(ssh -p * -i * *)",
+      "Bash(scp -P 43730 *)",
+      "Bash(scp -P * -i * *)",
+      "Bash(rsync *vast-canada-2*)",
+      "Bash(curl -sS http*://70.30.158.46:*)",
+      "Bash(curl -sS -X POST http*://70.30.158.46:*)",
+      "Bash(curl -sS -u *@70.30.158.46:*)",
+      "Bash(curl -sS -u * http://70.30.158.46:*)",
+      "Bash(curl -sS -H * http*://70.30.158.46:*)",
+      "Bash(mongosh mongodb://*@70.30.158.46:*)",
+      "Bash(mongosh \"$MONGO_URI*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git fetch *)",
+      "Bash(git pull *)",
+      "Bash(gh run *)",
+      "Bash(npm --version)",
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(.venv/bin/pip install *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:8000/docs)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:8000/health)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/)",
+      "Bash(curl -s http://localhost:8000/openapi.json -m 5)",
+      "Bash(curl -s -o /dev/null -w \"backend HTTP %{http_code} | %{time_total}s\\\\n\" http://localhost:8000/health)",
+      "Bash(curl -s -o /dev/null -w \"frontend HTTP %{http_code} | %{time_total}s\\\\n\" http://localhost:3000/)"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git -C work/* push --force:*)",
+      "Bash(git -C work/* push --force-with-lease:*)",
+      "Bash(*git push -f*)",
+      "Bash(curl* -X DELETE *70.30.158.46:43505*)",
+      "Bash(curl* -X DELETE *70.30.158.46:43829*)",
+      "Bash(curl* -X DELETE *elasticsearch*)",
+      "Bash(curl* -X DELETE *mongo*)",
+      "Bash(*dropDatabase*)",
+      "Bash(*docker restart mongodb*)",
+      "Bash(*docker restart elasticsearch*)",
+      "Bash(*docker compose restart*)",
+      "Bash(*docker exec *mongodb*)",
+      "Bash(*docker exec *elasticsearch*)",
+      "Bash(*docker exec * rm *)",
+      "Bash(docker rm:*)",
+      "Bash(*docker rm *)",
+      "Bash(docker volume rm:*)",
+      "Bash(*docker volume rm*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/scripts/session-start.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

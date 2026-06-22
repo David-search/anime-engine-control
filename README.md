@@ -1,59 +1,89 @@
-# anime-engine-control (AniChan)
+# anime-engine-control
 
-Control plane for **AniChan** (`anichan.net`): research, infra map, deploy notes,
-and Claude config. No application code lives here — that's in the two service repos.
+Claude orchestration plane for the **AniChan** stack (planned domain
+`anichan.net`). Clone this anywhere, fill in `.env`, and Claude has
+everything it needs to inspect, edit, test, and deploy the stack.
 
-| Folder / Repo | What |
-|---|---|
-| `David-search/anime-engine-frontend` | Next.js 15 UI (catalog, watch, social UI) |
-| `David-search/anime-engine-backend` | FastAPI (AniList catalog, server resolution, m3u8 proxy) |
-| `David-search/anime-engine-control` | this repo — docs + research + Claude config |
+The repo is **docs + Claude config + slash commands**. There is no
+production code here. Source code lives in the two service repos:
 
-## Docs
+| Service  | Repo                                  | Branches | Deploy                          |
+|----------|---------------------------------------|----------|---------------------------------|
+| frontend | `David-search/anime-engine-frontend`  | `main`   | build-on-server (CI/CD alt)     |
+| backend  | `David-search/anime-engine-backend`   | `main`   | build-on-server (CI/CD alt)     |
 
-- [`docs/infrastructure.md`](docs/infrastructure.md) — server, ports, Mongo/ES, deploy map
-- [`BUILD-PLAN.md`](BUILD-PLAN.md) — architecture & phased build
-- [`research/`](research/) — how anime streaming sites work, host integration, costs, pitfalls
+A single `main` branch per repo — **no `dev` branch and no self-hosted
+runner** (this differs from goongle). The primary deploy is
+build-on-server: sync source to `/home/anime/<svc>/` and
+`docker compose up -d --build`. A CI/CD alt path exists but currently
+fails until the owner adds GitHub secrets. See
+[.claude/guides/deploy-loop.md](.claude/guides/deploy-loop.md).
 
-## Stack
-
-- **Catalog**: AniList GraphQL (browse/search/genres). MAL id (`idMal`) carried for host mapping.
-- **Video**: embed third-party host players (default **MegaPlay**, AniList-keyed).
-- **Data (server)**: MongoDB (`mongodb:27017`) + Elasticsearch (`elasticsearch:9200`) on `goongle-network`.
-- **Deploy**: vast-canada-2 (`root@70.30.158.46:43730`), Docker, per-repo GitHub Actions CI/CD.
-
-## Run locally
+## Setup
 
 ```bash
-docker network create goongle-network        # once (shared bridge)
-
-cd backend  && cp .env.example .env  && docker compose up -d --build   # :8000
-cd frontend && cp .env.example .env  && docker compose up -d --build   # :3000
+git clone https://github.com/David-search/anime-engine-control.git
+cd anime-engine-control
+cp .env.example .env
+$EDITOR .env       # fill in GitHub user, SSH host/key, Mongo/ES creds
 ```
 
-Open http://localhost:3000. Or run natively:
+Open Claude in this directory; `CLAUDE.md` auto-loads with the
+infrastructure map and deploy semantics. Try:
 
-```bash
-cd backend  && python3.12 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
-            && ./.venv/bin/uvicorn app.main:app --reload --port 8000
-cd frontend && npm install && npm run dev
 ```
+/probe-es '/anime/_count'              # doc count in the ES "anime" index
+/probe-mongo 'db.anime.countDocuments()'  # catalog size in Mongo anime_db
+/ingest sample 50                      # smoke-ingest 50 from AniList → Mongo + ES
+/test-search "frieren"                 # search regression probe over SSH
+/setup-all                             # clone both repos in parallel, sync each .env
+/work-on backend                       # clone one repo, sync its .env, ready to edit
+/sync-envs                             # re-pull each on-server .env into work/<service>/
+/set-env backend ELASTIC_INDEX=anime   # update the canonical on-server .env
+/deploy-backend                        # sync source → compose up -d --build → verify
+/deploy-frontend                       # same for the Next.js frontend
+/ssh 'docker ps'                       # one-shot command on vast-canada-2
+/tail-logs backend                     # stream anime-backend container logs
+```
+
+See [CLAUDE.md](CLAUDE.md) for the full overview, [.claude/commands/](.claude/commands/)
+for every slash command, and [.claude/guides/](.claude/guides/) for the
+deeper pieces (architecture, deploy loop, ingest, safety, secrets).
 
 ## Deploy
 
-Per-repo GitHub Actions (`.github/workflows/ci-cd.yml`): push to `main` →
-build image → `docker save | gzip` → scp to server → `docker load` + `compose up`.
+The primary path is **build-on-server**: `/deploy-<service>` syncs the
+service source to `/home/anime/<svc>/` over `vast-canada-2`, then runs
+`docker compose up -d --build` (compose has `build: .` and reads the
+on-server `.env`), then verifies the public health URL.
 
-Required GitHub secrets:
+```
+/deploy-backend                  # anime-backend  → public :43577
+/deploy-frontend                 # anime-frontend → public :43879
+```
+
+A CI/CD alt path lives in each repo's `.github/workflows/ci-cd.yml`
+(push `main` → Actions builds image → `docker save | gzip` → scp →
+`docker load` + `compose up`). It **currently fails** until the repo
+owner adds GitHub Actions secrets — Claude **cannot** set these:
+
 - both repos: `SERVER_SSH_KEY` (private key for `root@70.30.158.46:43730`)
 - frontend repo: `NEXT_PUBLIC_BACKEND_URL` = `http://70.30.158.46:43577`
 
-Server deploy dirs: `/home/anime/frontend`, `/home/anime/backend` (each holds
-`docker-compose.yml` + `.env`). Network `goongle-network` already exists.
+Server deploy dirs: `/home/anime/frontend`, `/home/anime/backend`
+(each holds `Dockerfile`, `docker-compose.yml` with `build: .`, and a
+`.env` that is the source of truth for runtime config). All containers
+run on the external Docker network `goongle-network`, which already
+exists.
 
-## Roadmap (next phase)
+## Env source of truth
 
-- Auth: Google + email/password → MongoDB users
-- Ingest: AniList → MongoDB (full anime metadata) → index to Elasticsearch
-- Search: ES-powered autosuggestion (replace AniList live search)
-- Wire comments / likes / watch-history to MongoDB
+The canonical runtime config for each service is
+`/home/anime/<svc>/.env` **on the server**, not the local
+`work/<svc>/.env` mirror and not these markdown files. `/work-on`,
+`/setup-all`, and `/sync-envs` pull the server `.env` into the local
+clone; `/set-env` writes back to the server. Never edit
+`work/<svc>/.env` directly — it's clobbered on the next sync. And never
+commit real Mongo/ES passwords: use the placeholder
+`<stored in control .env on the server>` (the push auto-classifier
+blocks commits containing the real password).
