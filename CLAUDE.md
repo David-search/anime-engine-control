@@ -262,6 +262,23 @@ path.
 - **Env source of truth = `/home/anime/<svc>/.env` on the server.**
   Not the local `work/<svc>/.env` mirror, not these markdown files.
   When they disagree, the server `.env` wins.
+- **⚠️ NEVER sync a local env file over the server — exclude `.env`
+  AND `.env.local` on every deploy sync.** The on-server
+  `/home/anime/<svc>/{.env,.env.local}` hold values that exist **nowhere
+  in the repo**: `FRONTEND_HOST_PORT=8003` (the host→container port the
+  vast external mapping + nginx depend on), `NEXT_PUBLIC_BACKEND_URL=https://anichan.net`
+  (baked into the frontend at build time — must be the public https
+  origin, an `http://IP:port` here is mixed-content-blocked), the Google
+  client id, the Amplitude key, Mongo/ES creds, and `SELFHOST_*`.
+  Overwriting them with a dev-local copy silently breaks production: the
+  port mapping drops (→ 502 at the domain) and the next build bakes a
+  broken backend URL. The `/deploy-<service>` commands already carry
+  `--exclude '.env' --exclude '.env.local'`; **if you ever rsync/scp by
+  hand, carry the same excludes** (and never `scp -r` a whole tree — scp
+  can't exclude; copy only the specific changed files). Recovery, if
+  clobbered: the previous Docker image still has the baked
+  `NEXT_PUBLIC_*` values — `docker run --rm --entrypoint sh <old-image-id>
+  -c 'grep -rhoE "https?://[a-z0-9.]+" .next/static | sort -u'`.
 - **Don't ask permission for routine work.** Probes (`/probe-es`,
   `/probe-mongo`), log tails (`/tail-logs`), and test runs
   (`/test-search`) execute without prompts. Pause only for genuinely
@@ -352,7 +369,12 @@ Run on the server: `docker exec anime-backend python -m scripts.ingest <mode>`.
   addresses, credentials, data stores.
 - [BUILD-PLAN.md](BUILD-PLAN.md) — architecture & phased build.
 - [research/](research/) — how anime streaming sites work, host
-  integration, costs, pitfalls.
+  integration, costs, pitfalls. **As-built:**
+  [streaming-pipeline-and-player.md](research/streaming-pipeline-and-player.md)
+  (Miruro resolver, proxy, sources, player) and
+  [user-features-and-page-architecture.md](research/user-features-and-page-architecture.md)
+  (auth, comments, watchlist/Tops/Collections, the player-on-anime-page merge,
+  bug fixes).
 - [.claude/guides/architecture.md](.claude/guides/architecture.md) —
   high-level cross-service architecture (this is what `/architecture`
   summons).

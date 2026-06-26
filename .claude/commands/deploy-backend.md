@@ -10,18 +10,28 @@ source up to `/home/anime/backend/`, then `docker compose up -d --build`
 (compose has `build: .` and reads `/home/anime/backend/.env`), then
 verify the public `/health`.
 
+> ⚠️ **NEVER sync local env files over the server.** The on-server
+> `/home/anime/backend/{.env,.env.local}` are the **runtime source of
+> truth** (Mongo/ES creds, `SELFHOST_*` origin + ingest token — none in
+> the repo). The rsync below **must** exclude `.env` *and* `.env.local`.
+> Overwriting them with a dev-local copy breaks the running service. If
+> you ever `scp`/`rsync` by hand, carry the same excludes. See
+> [secrets.md](../guides/secrets.md).
+
 ```bash
 set -a && source .env && set +a
 
-# 1) Sync source → /home/anime/backend/  (preserve the on-server .env, which
-#    is the runtime source of truth and is NOT in the repo).
+# 1) Sync source → /home/anime/backend/  (preserve the on-server env files —
+#    .env AND .env.local are the source of truth and are NOT in the repo).
 rsync -az --delete \
-  --exclude '.git' --exclude '.env' --exclude '__pycache__' \
+  --exclude '.git' --exclude '.env' --exclude '.env.local' --exclude '__pycache__' \
   -e "ssh -p $SSH_PORT" \
   work/backend/ "$SSH_USER@$SSH_HOST:/home/anime/backend/"
 
-# (no rsync? scp the tree instead:)
-#   scp -q -P "$SSH_PORT" -r work/backend/* "$SSH_USER@$SSH_HOST:/home/anime/backend/"
+# (no rsync? scp can't exclude — NEVER scp the whole tree; scp only the
+#  specific files you changed, never .env/.env.local:)
+#   scp -q -P "$SSH_PORT" work/backend/app/sources.py \
+#       "$SSH_USER@$SSH_HOST:/home/anime/backend/app/sources.py"
 
 # 2) Rebuild + restart on the server.
 ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \

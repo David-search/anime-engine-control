@@ -13,22 +13,39 @@ verify the public site.
 > The frontend is Next.js 15 with **standalone output**, so
 > `NEXT_PUBLIC_BACKEND_URL` is baked in at **build time**. The on-server
 > `docker-compose.yml` passes it as a build arg —
-> `NEXT_PUBLIC_BACKEND_URL=http://70.30.158.46:43577` — sourced from
-> `/home/anime/frontend/.env`. If the deployed UI can't reach the API,
-> check that arg first.
+> `NEXT_PUBLIC_BACKEND_URL=https://anichan.net` — sourced from
+> `/home/anime/frontend/.env`. It must be the **public https origin**
+> (the browser fetches `${NEXT_PUBLIC_BACKEND_URL}/api/...`, and nginx on
+> `anichan.net` routes `/api` → backend). A bare `http://IP:port` here
+> would be **blocked as mixed content** on the https site. If the deployed
+> UI can't reach the API, check that arg first.
+
+> ⚠️ **NEVER sync local env files over the server.** The on-server
+> `/home/anime/frontend/{.env,.env.local}` are the **runtime source of
+> truth** (they hold the real `FRONTEND_HOST_PORT=8003`, the
+> `https://anichan.net` backend URL, the Google client id, and the
+> Amplitude key — none of which are in the repo). The rsync below
+> **must** exclude `.env` *and* `.env.local`. Overwriting them with a
+> dev-local copy silently breaks the port mapping (→ 502 at the domain)
+> and bakes a wrong backend URL on the next build. If you ever `scp` or
+> `rsync` by hand, carry the same excludes. See
+> [secrets.md](../guides/secrets.md).
 
 ```bash
 set -a && source .env && set +a
 
-# 1) Sync source → /home/anime/frontend/  (preserve the on-server .env and
-#    skip build artifacts).
+# 1) Sync source → /home/anime/frontend/  (preserve the on-server env files —
+#    .env AND .env.local are the source of truth — and skip build artifacts).
 rsync -az --delete \
-  --exclude '.git' --exclude '.env' --exclude 'node_modules' --exclude '.next' \
+  --exclude '.git' --exclude '.env' --exclude '.env.local' \
+  --exclude 'node_modules' --exclude '.next' --exclude 'public/jassub' \
   -e "ssh -p $SSH_PORT" \
   work/frontend/ "$SSH_USER@$SSH_HOST:/home/anime/frontend/"
 
-# (no rsync? scp the tree instead:)
-#   scp -q -P "$SSH_PORT" -r work/frontend/* "$SSH_USER@$SSH_HOST:/home/anime/frontend/"
+# (no rsync? scp the tree instead — but scp can't exclude, so NEVER scp the
+#  whole tree; scp only the specific files you changed, never .env/.env.local:)
+#   scp -q -P "$SSH_PORT" work/frontend/components/Foo.tsx \
+#       "$SSH_USER@$SSH_HOST:/home/anime/frontend/components/Foo.tsx"
 
 # 2) Rebuild + restart on the server. compose passes NEXT_PUBLIC_BACKEND_URL
 #    as a build arg from /home/anime/frontend/.env.
