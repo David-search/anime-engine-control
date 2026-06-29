@@ -76,67 +76,47 @@ substantive part. Don't include the diagram on subsequent turns.
 ## System diagram
 
 ```
-                              USERS (browser)
-                                    │  https://anichan.net
-                                    ▼
-                       ┌──────────────────────────┐
-                       │  nginx TLS edge          │   host web-goongle (66.55.65.89)
-                       │  anichan.net · LetsEncrypt│   SHARED with goongle.net
-                       │  /→app  /api,/api/watch→be│   touch anichan.net vhost only
-                       └────────────┬─────────────┘
-                                    │  proxy_pass → vast-canada-2 raw ports
-                                    ▼
-                       ┌──────────────────────────┐
-                       │   frontend (Next.js 15)  │   anime-engine-frontend
-                       │   container anime-frontend│   NEXT_PUBLIC_BACKEND_URL
-                       │   host :8003 → :3000     │   = https://anichan.net (baked)
-                       └────────────┬─────────────┘
-                                    │
-                       catalog / search / detail / watch  (all under /api)
-                       /api/catalog/*  /api/search  /api/watch/*
-                                    │
-                                    ▼
-                       ┌──────────────────────────┐
-                       │     backend (FastAPI)    │   anime-engine-backend
-                       │     container anime-backend│   single main branch
-                       │     host :8008 → :8000   │   public :43577
-                       └────┬─────────────────┬───┘
-                            │                 │
-                  catalog / │                 │ search-as-you-type
-                  detail    │                 │ suggest + facets
-                  reads     ▼                 ▼
-            ┌────────────────────┐   ┌──────────────────────┐
-            │     MongoDB        │   │   Elasticsearch 8.13 │
-            │  container mongodb │   │  container elasticsearch│
-            │  in-net :27017     │   │  in-net :9200        │
-            │  host :8002        │   │  host :8005          │
-            │  ext  :43829       │   │  ext  :43505         │
-            │  db anime_db       │   │  index "anime"       │
-            │  ┌────────────────┐│   │  ┌──────────────────┐│
-            │  │ anime   users  ││   │  │ search_as_you_   ││
-            │  │ comments  likes││   │  │  type suggest    ││
-            │  │ history  lists ││   │  │ genre/tag/source/││
-            │  │ watchlist      ││   │  │  season facets   ││
-            │  │ selfhost_cache ││   │  │ title en+romaji  ││
-            │  └────────────────┘│   │  │  +native         ││
-            └─────────▲──────────┘   │  └──────────────────┘│
-                      │              └──────────▲───────────┘
-                      │  upsert catalog         │  index docs
-                      │  + heavy fields         │  (genres/tags/
-                      │                         │   facets/titles)
-                      └───────────┬─────────────┘
+                       USERS (browser) ── https://anichan.net (TLS)
                                   │
-                       ┌──────────┴───────────┐
-                       │  scripts/ingest.py   │   standalone CLI,
-                       │  (backend repo)      │   NOT imported by app
-                       │  paced ~2.2s/req     │
-                       └──────────▲───────────┘
-                                  │ GraphQL
-                       ┌──────────┴───────────┐
-                       │  AniList GraphQL     │   graphql.anilist.co
-                       │  catalog source      │   (offset cap 5000;
-                       │                      │    ~30 req/min degraded)
-                       └──────────────────────┘
+                                  ▼
+          ┌──────────────────────────────────────────────────┐
+          │  web-goongle — nginx TLS edge   66.55.65.89        │  SHARED w/ goongle.net
+          │  / → frontend    /api , /api/watch → backend       │  Let's Encrypt · password-auth ssh
+          └───────────────────────┬──────────────────────────┘   (vhost saved in infrastructure.md)
+                                  │ proxy_pass → vast-canada-2 (70.30.158.46)
+              ┌───────────────────┴────────────────────┐
+              ▼                                          ▼
+   ┌─────────────────────────┐            ┌──────────────────────────────┐
+   │ frontend  Next.js 15    │  browser   │  backend  FastAPI            │  anime-backend
+   │ anime-frontend          │  /api/* ──►│  ALL routes under /api/*     │  :8008→8000 · ext :43577
+   │ :8003→3000 · ext :43879 │  (SSR via  │  player: hls.js + JASSUB     │
+   │ NEXT_PUBLIC=anichan.net │   anime-backend:8000)   └──┬──────────────────┬──┘
+   └─────────────────────────┘                            │                  │ /api/watch/*  (play)
+                                  catalog / search / social│                  ▼
+                          ┌───────────────┬───────────────┘     ┌─────────────────────────────────┐
+                          ▼               ▼                     │ resolver  app/sources.py         │
+            ┌──────────────────────┐ ┌──────────────────┐      │  • Miruro secure-pipe → source2+ │
+            │ MongoDB  anime_db    │ │ Elasticsearch    │      │  • self-host CACHED → SOURCE 1   │
+            │ 9 collections:       │ │ index "anime"    │      └────────────────┬────────────────┘
+            │  anime · users       │ │ search-as-you-   │      self-host ep? →   │ signed cdn urls
+            │  comments · likes    │ │  type suggest    │                       ▼
+            │  history · watchlist │ │ genre/tag/source/│      ┌─────────────────────────────────┐
+            │  lists · list_ratings│ │  season facets   │      │ cdn.anichan.net — BUNNY CDN      │ token-signed;
+            │  selfhost_cache      │ │ multiling titles │      │ edge-cached, ~99% of bytes DIRECT│ playlists proxy
+            │ ext :43829           │ │ ext :43505       │      └────────────────┬────────────────┘ via /api/watch
+            └──────────▲───────────┘ └────────▲─────────┘         cache miss →  │ pull (HTTP)
+                       │ upsert + heavy fields │ index docs                      ▼
+                       └───────────┬───────────┘               ┌─────────────────────────────────┐
+                                   │ ingest (offline CLI)       │ offshore  185.255.120.59         │
+                        ┌──────────┴───────────┐                │  nginx /srv/hls — HLS ORIGIN ~17TB│ ⚠️ no backup yet
+                        │ scripts/ingest.py    │                └────────────────▲────────────────┘
+                        │  → AniList GraphQL   │                     ship HLS (ssh) │ (ship-and-delete)
+                        │  (paced ~2.2s/req)   │                ┌────────────────┴────────────────┐
+                        └──────────────────────┘                │ BUILD FARM — 6 nodes canada-2..7 │
+                                                                │ 3 Eweka accts · resolve → download│
+   Mongo + ES are SHARED with goongle (own db/index only).     │ (NZB/torrent) → encode (NVENC Y) →│
+   Build farm + offshore + CDN detail: RUNBOOK.md + 19-cdn.     │ ship → rm  ·  see RUNBOOK.md      │
+                                                                └──────────────────────────────────┘
 ```
 
 **Mongo `anime_db` — 9 collections:** `anime` (catalog) · `users` (auth:
