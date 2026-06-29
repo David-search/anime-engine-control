@@ -1,10 +1,13 @@
 # backend — catalog / search / detail / auth / social API
 
 FastAPI service (Python 3.12) serving the AniChan API. Container
-`anime-backend`, host port `8008 → container 8000`, public
-`http://70.30.158.46:43577`. The request path is **pure Mongo + ES
-reads** — it never calls AniList at request time, with one cached
-exception (`/catalog/trending`, below). AniList is touched only by the
+`anime-backend`, host port `8008 → container 8000`; reached publicly as
+`https://anichan.net/api/*` through the **web-goongle nginx edge** (origin
+`http://70.30.158.46:43577`). **Every route is mounted under `/api`** (see
+`main.py`). The catalog/search path is **pure Mongo + ES reads** (it never
+calls AniList at request time, except the cached `/api/catalog/trending`);
+the **`/api/watch/*`** path additionally resolves streams via the Miruro pipe
++ the self-host origin (below). AniList is otherwise touched only by the
 offline ingest CLI in `scripts/`.
 
 ## App layout
@@ -15,19 +18,23 @@ lives apart on purpose.
 
 ```
 app/
-  main.py            # FastAPI app, CORS, lifespan (Mongo/ES clients), router includes
+  main.py            # FastAPI app, CORS, lifespan (Mongo/ES clients), routers mounted under /api
   routers/
-    catalog.py       # /api/catalog/* — list, by-id, trending, popular, airing, browse, genres
+    catalog.py       # /api/catalog/* — trending, popular, airing, browse, genres, search, sitemap, anime/{id}
     search.py        # /api/search, /api/suggest — search-as-you-type + faceted query
-    auth.py          # /api/auth/* — email signup/login + Google verify, JWT issue
-    social.py        # /api/social/* — comments, likes, watch history (per-user)
+    auth.py          # /api/auth/* — register, login, google, me (JWT)
+    social.py        # /api/{comments,likes,history,watchlist,lists,...} — flat per-user (NOT /api/social)
+    watch.py         # /api/watch/* — stream resolution + HLS/subtitle proxy + self-host (below)
+  sources.py         # stream resolver: Miruro secure-pipe + curated hosts + self-host Source 1
   anilist.py         # AniList GraphQL client (trending cache + shared by ingest)
   es.py              # Elasticsearch client + query builders, facet aggs
-  db.py              # Mongo (Motor) client + collection accessors
-  config.py          # settings (env-driven): MONGO_URI, ELASTIC_*, GOOGLE_CLIENT_ID, JWT
+  db.py              # Mongo (Motor) client; ensure_indexes() for all 9 collections
+  config.py          # settings (env): MONGO_URI, ELASTIC_*, GOOGLE_CLIENT_ID, JWT_*, SELFHOST_*, TELEGRAM_*
   auth.py            # password hashing, JWT encode/verify, Google id-token verify, deps
+  telegram_logger.py # ships WARN/ERROR logs to a Telegram channel when TELEGRAM_* set (optional)
 scripts/
   ingest.py          # standalone AniList → Mongo → ES ingest CLI (NOT imported by app)
+selfhost/            # build-farm scripts mirrored from claude/self-hosted (resolve/download/encode/ship)
 ```
 
 ## Routes
@@ -36,10 +43,11 @@ scripts/
 
 | Prefix      | Router                                       | What it serves                                                       |
 |-------------|----------------------------------------------|---------------------------------------------------------------------|
-| `/api/catalog` | [app/routers/catalog.py](app/routers/catalog.py) | List + by-id + popular + airing + browse + genres from Mongo; `trending` from cached AniList |
+| `/api/catalog` | [app/routers/catalog.py](app/routers/catalog.py) | trending (cached AniList) + popular/airing/browse/genres/search/sitemap + `anime/{id}` from Mongo |
 | `/api/search`  | [app/routers/search.py](app/routers/search.py)   | Search-as-you-type suggest + faceted full query against ES `anime`  |
-| `/api/auth`    | [app/routers/auth.py](app/routers/auth.py)       | Email signup/login + Google sign-in verify; issues a JWT            |
-| `/api/social`  | [app/routers/social.py](app/routers/social.py)   | Comments, likes, watch history — all keyed by the JWT user          |
+| `/api/auth`    | [app/routers/auth.py](app/routers/auth.py)       | register / login / google / me — email+password or Google, issues a JWT |
+| `/api/*` social | [app/routers/social.py](app/routers/social.py)  | flat: `/api/comments` `/api/likes` `/api/history` `/api/watchlist[/contains]` `/api/lists[...]` — JWT-keyed (**no** `/api/social` prefix) |
+| `/api/watch`   | [app/routers/watch.py](app/routers/watch.py)     | stream resolution (`/episodes` `/servers` `/sources`) + HLS/subtitle proxy (`/m3u8` `/seg` `/vtt`) + self-host `cache-state` |
 
 `GET /health` (in `main.py`) is the deploy probe — returns `200` once
 the Mongo + ES clients are up.
@@ -62,18 +70,55 @@ suggest dropdown, plus a faceted full query exposing `genres` / `tags` /
 
 ### Trending — the one AniList passthrough
 
-`/catalog/trending` is the **only** request-path AniList call. It mirrors
+`/api/catalog/trending` is the **only** request-path AniList call. It mirrors
 AniList `TRENDING_DESC` via [app/anilist.py](app/anilist.py) and caches the
 result **in-process for 30 minutes**. Everything else on the request path
 is Mongo/ES. (MAL/Jikan + TMDB are possible **future** enrichment, not
 wired.)
 
+### Streaming & self-host (`/api/watch`)
+
+The heart of the app — [app/routers/watch.py](app/routers/watch.py) +
+[app/sources.py](app/sources.py):
+
+- **Resolver (`sources.py`).** Streams come from the **Miruro aggregator
+  "secure pipe"** (`/api/secure/pipe?e=base64url(json)`; bases rotate
+  `.bz/.to/.tv/.ru`). Miruro's rotating provider codenames are abstracted to
+  stable `source1..N` keyed on the **host**. Curated reliable hosts:
+  `animedao`/`anidbapp`/`animegg` (clean, proxied) then `allmanga`/`anikoto`
+  (embed iframes). A global semaphore + TTL caches (episodes 10 min, servers
+  3 min) keep it from bursting Miruro into a 429.
+- **Self-host Source 1.** When `SELFHOST_CACHE=1` and the episode exists at
+  `SELFHOST_ORIGIN/{anilistId}/{ep}/sub/master.m3u8`, it's returned as **Source 1
+  "AniChan · self-hosted (ad-free)"**, ahead of Miruro. One multi-audio HLS build
+  per episode (JP + any dub as EXT-X-MEDIA audio); subtitles prefer
+  `subs/tracks.json` (styled ASS + embedded fonts for JASSUB), else master VTT.
+  Resolved **concurrently** with Miruro (separate 60s/15s cache) so a freshly
+  cached episode surfaces within seconds.
+- **Proxy (`watch.py`).** `/api/watch/m3u8` rewrites playlists to root-relative
+  proxy URLs (and strips in-manifest subtitle groups so the selector can't
+  desync); `/api/watch/seg` streams segments/keys Range-aware; `/api/watch/vtt`
+  serves subtitles (stream-referer → miruro → none). Proxied with the per-host
+  Referer/Origin the CDN needs, so **the origin IP never reaches the browser**;
+  an **SSRF guard** rejects private/loopback/link-local/reserved/metadata IPs.
+- **Coverage callback.** `POST /api/watch/cache-state` (auth: `SELFHOST_INGEST_TOKEN`)
+  is how a build-farm node reports which eps are cached → **merges** into
+  `selfhost_cache` (never regresses a partial run; fills `total_eps` from the catalog)
+  for the coverage badges. The on-open `trigger_ingest` → `SELFHOST_INGEST_URL` auto-cache
+  path is **disabled on the server (2026-06-26)** — caching is now a deliberate build-farm
+  step, not viewer-triggered (the env var is retained but the call is commented out). Farm
+  ops: [claude/self-hosted/RUNBOOK.md](../../self-hosted/RUNBOOK.md).
+
 ### Auth & social
 
-`/auth` supports **email** (signup/login with hashed passwords) and
-**Google** (verify the Google id token against `GOOGLE_CLIENT_ID`), then
-issues a JWT. `/social` endpoints require that JWT and read/write the
-`users` / `comments` / `likes` / `history` collections in `anime_db`.
+`/api/auth` supports **email** (register/login with hashed passwords) and
+**Google** (verify the id token against `GOOGLE_CLIENT_ID`), then issues a JWT
+(`JWT_SECRET`, `JWT_TTL_DAYS`). The social routes are **flat under `/api`** (not
+`/api/social`) and JWT-keyed: `/api/comments` (per-anime), `/api/likes`,
+`/api/history` (resume), `/api/watchlist` ("My List"), and `/api/lists`
+(+ `/api/lists/public`, `/api/lists/{id}/{items,reorder,rate}`) for public
+**tops** / private **collections**. They read/write `users` / `comments` /
+`likes` / `history` / `watchlist` / `lists` / `list_ratings` in `anime_db`.
 
 ## Run locally — native, not docker
 
@@ -155,8 +200,10 @@ collection or index without explicit confirmation.
 | Elasticsearch  | `http://elasticsearch:9200`  | `http://70.30.158.46:43505`          | `elastic:<stored in control .env on the server>`, index `anime`|
 | Backend        | `http://anime-backend:8000`  | `http://70.30.158.46:43577`          | none                                                           |
 
-`anime_db` collections: `anime` (catalog), `users`, `comments`, `likes`,
-`history`. ES index `anime`: `search_as_you_type` suggest;
+`anime_db` collections (9): `anime` (catalog) · `users` · `comments` · `likes` ·
+`history` · `watchlist` ("My List") · `lists` (public tops / private collections) ·
+`list_ratings` · `selfhost_cache` (self-host coverage marks). ES index `anime`:
+`search_as_you_type` suggest;
 `genres`/`tags`/`source`/`season` facets; multilingual title search
 (`en` + `romaji` + `native`).
 
@@ -193,7 +240,7 @@ backend `http://70.30.158.46:43577`.
   destructive.
 - **The app never calls AniList at request time — except `trending`.**
   If you see request-path latency spikes, it's Mongo/ES, not AniList.
-  The one exception is `/catalog/trending` (30-min in-process cache); a
+  The one exception is `/api/catalog/trending` (30-min in-process cache); a
   cold cache is the only place an inbound request waits on
   `graphql.anilist.co`.
 - **Ingest is paced and rate-limited.** ~2.2s/req, offset cap 5000,

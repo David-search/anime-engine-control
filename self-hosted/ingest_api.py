@@ -46,7 +46,12 @@ def _worker():
             except queue.Empty:
                 continue
         try:
-            if not cache_db.is_cached(aid, ep, "sub"):
+            # DISABLED (2026-06-26): the on-demand service no longer launches downloads
+            # or encodes. Builds are a manual / build-farm step — run
+            # `python3 /data/ingest.py episode <aid> <ep>` by hand. The queue still
+            # drains (so callers don't block) but does no work. Drop `False and` to
+            # re-enable auto-ingest.
+            if False and not cache_db.is_cached(aid, ep, "sub"):
                 subprocess.run([PY, INGEST, "episode", str(aid), str(ep)],
                                cwd="/data", timeout=5400)
                 try:

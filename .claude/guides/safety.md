@@ -1,10 +1,11 @@
 # Safety — what to NOT do, and why
 
-The control repo is intentionally narrow: it builds + deploys the two
-AniChan services to one host, probes the data layers read-only, and
-stops there. The data stores are **shared** with a separate goongle
-project on the same host — that's the single biggest reason for caution.
-This file lists the boundaries and the reasoning.
+The control repo builds + deploys the two AniChan services to the app host
+(vast-canada-2), which sits behind the **web-goongle nginx edge** and is
+backed by a self-host **build farm** + **offshore** HLS origin; it probes
+the data layers read-only and stops there. Two things drive most of the
+caution: the Mongo/ES data stores **and** the nginx edge are **shared**
+with a separate goongle project. This file lists the boundaries and reasoning.
 
 ## Hard rules
 
@@ -16,6 +17,8 @@ This file lists the boundaries and the reasoning.
 | **Never commit real Mongo/ES passwords.** | Use the literal placeholder `<stored in control .env on the server>`. The push auto-classifier blocks commits containing the real password. See [secrets.md](secrets.md). |
 | **Ask before restarting / recreating containers.** | `mongodb` and `elasticsearch` are shared; restarting them affects goongle too. Confirm before `docker restart` / `docker compose up` on a shared container. The two `anime-*` containers are AniChan-only, but still confirm if unsure. |
 | **Don't `docker rm` / `docker volume rm`.** | Same data-loss + shared-infra risk. Use `docker compose up -d --build` to recreate the AniChan service containers; never remove the Mongo/ES volumes. |
+| **The web-goongle nginx edge is SHARED — it also serves `goongle.net`.** Only edit the `anichan.net` vhost; never reload/restart nginx or touch other vhosts without scoping (`nginx -t` first). | A bad reload or an edit to a shared/other vhost can 502 goongle's production site. The edge (`web-goongle` alias, password auth) is what makes `https://anichan.net` work. |
+| **Don't wipe the offshore `/srv/hls` origin (or its per-anime dirs) without confirmation.** | It's the entire self-hosted video catalog — hundreds of shipped episodes (~hours of build-farm work each). Cleaning a *build node's* working dirs (`/data/...`, via `/farm-fix … clean`) is safe — they re-download; deleting from offshore is not. |
 
 **These are enforced, not just guidance.** [.claude/settings.json](../settings.json)'s
 deny-list auto-blocks (before execution, including ssh-wrapped variants):
@@ -35,15 +38,16 @@ by accident.
   `/home/anime/<svc>/`, `docker compose up -d --build`, verify the
   public URL. No prompts for the two `anime-*` services themselves.
 - **The catalog read path is pure Mongo/ES.** After a backend change,
-  confirm `/catalog/trending` and `/search?q=...` still return — that's
-  the contract.
+  confirm `/api/catalog/trending` and `/api/search?q=...` still return —
+  that's the contract. (Every route is under `/api`; the public path is
+  `https://anichan.net/api/...` through the edge.)
 
 ## AniList rate-limit hygiene
 
 - The **only** AniList caller is `scripts/ingest.py` (paced ~2.2 s/req).
   AniList caps offset pagination at 5000 entries and degrades to
   ~30 req/min. Don't add per-request AniList calls to the serving path —
-  the one allowed exception is `/catalog/trending` (cached 30 min).
+  the one allowed exception is `/api/catalog/trending` (cached 30 min).
 - Don't run two ingest jobs concurrently against AniList; you'll trip
   the rate limiter and degrade both.
 

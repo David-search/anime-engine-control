@@ -63,7 +63,8 @@ the owner:
 
 1. In `anime-engine-backend` → add `SERVER_SSH_KEY`.
 2. In `anime-engine-frontend` → add `SERVER_SSH_KEY` **and**
-   `NEXT_PUBLIC_BACKEND_URL=http://70.30.158.46:43577`.
+   `NEXT_PUBLIC_BACKEND_URL=https://anichan.net` (the public HTTPS origin
+   via the web-goongle edge — an `http://IP:port` would be mixed-content-blocked).
 3. Re-run the failed workflow (or push a commit to `main`).
 
 Until then, deploy with the manual fallback below.
@@ -82,7 +83,7 @@ rsync -az -e 'ssh -p 43730' --exclude '.git' --exclude '.env' \
 ssh vast-canada-2 'cd /home/anime/<svc> && docker compose up -d --build'
 
 # verify
-curl -sS http://70.30.158.46:43577/catalog/trending          # backend
+curl -sS http://70.30.158.46:43577/api/catalog/trending          # backend
 curl -sS -o /dev/null -w '%{http_code}\n' http://70.30.158.46:43879   # frontend
 ```
 

@@ -14,13 +14,15 @@ deploys straight to its one container.
 
 ## What's in prod
 
-One host: **vast-canada-2** (`70.30.158.46`, ssh `-p 43730 root@…`). All
-containers run on the external Docker network `goongle-network`.
+Three hosts: the **web-goongle** nginx TLS edge (public `https://anichan.net`,
+shared with goongle.net), the **vast-canada-2** app host (`70.30.158.46`, ssh
+`-p 43730 root@…`; all containers on the external Docker network
+`goongle-network`), and the **offshore** HLS origin (`185.255.120.59`).
 
-| Container        | Branch deployed | Repo                                  | Host port       | External / Public                     |
+| Container        | Branch deployed | Repo                                  | Host port       | Public (via edge) / origin            |
 |------------------|-----------------|---------------------------------------|-----------------|---------------------------------------|
-| `anime-frontend` | `main`          | `David-search/anime-engine-frontend`  | `8003 → 3000`   | `http://70.30.158.46:43879` (planned `anichan.net`) |
-| `anime-backend`  | `main`          | `David-search/anime-engine-backend`   | `8008 → 8000`   | `http://70.30.158.46:43577`           |
+| `anime-frontend` | `main`          | `David-search/anime-engine-frontend`  | `8003 → 3000`   | **`https://anichan.net`** (live); origin `:43879` |
+| `anime-backend`  | `main`          | `David-search/anime-engine-backend`   | `8008 → 8000`   | `https://anichan.net/api/*`; origin `:43577` |
 
 The data stores below are **not** deployed by this repo — they're
 long-lived, host-level containers **shared with a separate goongle
@@ -29,7 +31,7 @@ project**. AniChan uses its own Mongo db (`anime_db`) and ES index
 
 | Container        | In-network            | Host port       | External                | Holds (AniChan)                       |
 |------------------|-----------------------|-----------------|-------------------------|---------------------------------------|
-| `mongodb`        | `mongodb:27017`       | `8002 → 27017`  | `70.30.158.46:43829`    | db `anime_db`: `anime`, `users`, `comments`, `likes`, `history` |
+| `mongodb`        | `mongodb:27017`       | `8002 → 27017`  | `70.30.158.46:43829`    | db `anime_db` (9): `anime`, `users`, `comments`, `likes`, `history`, `watchlist`, `lists`, `list_ratings`, `selfhost_cache` |
 | `elasticsearch`  | `elasticsearch:9200`  | `8005 → 9200`   | `70.30.158.46:43505`    | index `anime` (suggest + facets + multilingual titles) |
 
 ## Allowed operations from this repo
@@ -43,7 +45,7 @@ project**. AniChan uses its own Mongo db (`anime_db`) and ES index
 - `/tail-logs frontend` / `/tail-logs backend` — read-only log tail over
   SSH.
 - `curl` GETs against the public URLs to verify a route
-  (`http://70.30.158.46:43879`, `http://70.30.158.46:43577/health`).
+  (`https://anichan.net`, origin `http://70.30.158.46:43577/health`).
 - `/ingest <mode>` — runs `docker exec anime-backend python -m
   scripts.ingest <mode>`. Writes to `anime_db` + the `anime` index
   (AniChan's own), but a `full` run is long and AniList-rate-limited;
@@ -97,6 +99,6 @@ Each repo also has `.github/workflows/ci-cd.yml`: **push to `main`** →
 GitHub Actions builds the image → `docker save | gzip` → scp → server
 `docker load` + `docker compose up`. It **fails** until the repo owner
 adds the GitHub Actions secrets — `SERVER_SSH_KEY` (both repos) and
-`NEXT_PUBLIC_BACKEND_URL=http://70.30.158.46:43577` (frontend). Claude
+`NEXT_PUBLIC_BACKEND_URL=https://anichan.net` (frontend). Claude
 **cannot** set GitHub secrets — only the owner can, in repo Settings →
 Secrets. Until then, build-on-server is the only working path.

@@ -1,8 +1,10 @@
 # anime-engine-control
 
-Claude orchestration plane for the **AniChan** stack (planned domain
-`anichan.net`). Clone this anywhere, fill in `.env`, and Claude has
-everything it needs to inspect, edit, test, and deploy the stack.
+Claude orchestration plane for the **AniChan** stack — **live at
+https://anichan.net** (web-goongle nginx TLS edge → app on vast-canada-2;
+self-hosted video from the offshore HLS origin). Clone this anywhere, fill
+in `.env`, and Claude has everything it needs to inspect, edit, test, and
+deploy the stack.
 
 The repo is **docs + Claude config + slash commands**. There is no
 production code here. Source code lives in the two service repos:
@@ -44,6 +46,9 @@ infrastructure map and deploy semantics. Try:
 /deploy-frontend                       # same for the Next.js frontend
 /ssh 'docker ps'                       # one-shot command on vast-canada-2
 /tail-logs backend                     # stream anime-backend container logs
+/farm-status                           # health of the 6-node self-host build farm + offshore
+/farm-fix 5                            # recover build node canada-5 (restart daemons / clean disk)
+/farm-provision vast-canada-4          # NVENC-gate + bundle-push a fresh build node
 ```
 
 See [CLAUDE.md](CLAUDE.md) for the full overview, [.claude/commands/](.claude/commands/)
@@ -75,6 +80,23 @@ Server deploy dirs: `/home/anime/frontend`, `/home/anime/backend`
 `.env` that is the source of truth for runtime config). All containers
 run on the external Docker network `goongle-network`, which already
 exists.
+
+## Self-host build farm
+
+The video bytes behind "★ AniChan · self-hosted" come from a **separate
+6-node GPU build farm** (vast.ai `canada-2..7`, 3 Eweka Usenet accounts)
+that acquires anime, encodes to HLS, and ships to an offshore origin
+(`185.255.120.59`) the backend auto-serves. It runs unattended (tmux
+supervisors + cron watchdog) and self-recovers dead torrents via live Nyaa.
+This is independent of the app deploy above.
+
+- **Ops runbook:** [self-hosted/RUNBOOK.md](self-hosted/RUNBOOK.md) — topology,
+  provisioning, monitoring, the dead-torrent + disk-fill fixes.
+- **Commands:** `/farm-status` (health sweep), `/farm-fix <node> [restart|clean]`
+  (recover a node), `/farm-provision <ssh-alias>` (NVENC-gate + bundle a new node).
+- **Credentials** (Eweka ×3, offshore, ingest token, node host:ports) live in
+  the gitignored [.env](.env) — keys `NODE_CANADA2..7`, `EWEKA1..3_*`, `OFFSHORE_*`,
+  `SELFHOST_*`. vast host:ports rotate; keep `~/.ssh/config` + `.env` in sync.
 
 ## Env source of truth
 

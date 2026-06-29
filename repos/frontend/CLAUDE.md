@@ -1,17 +1,19 @@
 # frontend — AniChan UI
 
 Next.js 15 (App Router, `output: 'standalone'`). Container
-`anime-frontend`, host port `8003 → container 3000`, public
-`http://70.30.158.46:43879` (planned `anichan.net`). Every page reads
-from the backend; the browser hits it directly at the URL baked in at
-build time (`NEXT_PUBLIC_BACKEND_URL`), while SSR inside the container
-reaches it in-network as `http://anime-backend:8000`.
+`anime-frontend`, host port `8003 → container 3000`; **public at
+https://anichan.net** via the web-goongle nginx edge (origin
+`http://70.30.158.46:43879`). Every page reads from the backend; the
+browser hits it at the URL baked in at build time
+(`NEXT_PUBLIC_BACKEND_URL=https://anichan.net`, same-origin `/api/*`
+through the edge), while SSR inside the container reaches it in-network
+as `http://anime-backend:8000`.
 
 | | URL |
 |---|---|
-| On the server | `http://localhost:8003` |
-| Public | `http://70.30.158.46:43879` (planned `anichan.net`) |
-| Backend (browser, baked at build) | `http://70.30.158.46:43577` |
+| Public site | **`https://anichan.net`** (live; via the web-goongle edge) |
+| Frontend origin (on server) | `http://localhost:8003` → public `http://70.30.158.46:43879` (behind edge) |
+| Backend (browser, baked at build) | `https://anichan.net` (same-origin `/api/*` via the edge) |
 | Backend (SSR, in-network) | `http://anime-backend:8000` |
 
 ## Routing
@@ -43,9 +45,10 @@ SSR.
 | `getFacets()` / `getGenres()`  | `GET /api/catalog/genres`     | filter dropdowns (genres/tags/years/formats) |
 | `useAuth().login/register/googleLogin` ([lib/auth.tsx](lib/auth.tsx)) | `POST /api/auth/{login,register,google}` | Auth flows |
 
-Social (comments/likes/history) endpoints exist on the backend
-(`/api/social/*`) but the frontend is **not wired to them yet** —
-`Comments` is currently seeded from AniList reviews + local state.
+Social endpoints exist on the backend as **flat `/api/*` routes**
+(`/api/comments`, `/api/likes`, `/api/history`, `/api/watchlist`,
+`/api/lists/*` — **not** `/api/social`). The frontend may not wire all of
+them yet — `Comments` is currently seeded from AniList reviews + local state.
 
 ## Components
 
@@ -68,14 +71,14 @@ there first.
 Two methods: **email** (signup/login → backend issues a JWT) and
 **Google** (Google Identity Services / GIS button → backend verifies the
 id token → JWT). The Google client id comes from `NEXT_PUBLIC_GOOGLE_CLIENT_ID`
-(matching the backend's `GOOGLE_CLIENT_ID`). The JWT is what `/social/*`
-calls carry for comments / likes / history.
+(matching the backend's `GOOGLE_CLIENT_ID`). The JWT is what the social
+`/api/*` calls carry for comments / likes / history.
 
 ## Env
 
 | Var                              | Purpose                                                          |
 |----------------------------------|-----------------------------------------------------------------|
-| `NEXT_PUBLIC_BACKEND_URL`        | Backend base for browser calls — **baked at build time**, `http://70.30.158.46:43577` |
+| `NEXT_PUBLIC_BACKEND_URL`        | Backend base for browser calls — **baked at build time**, `https://anichan.net` (same-origin `/api/*` via the edge) |
 | `NEXT_PUBLIC_GOOGLE_CLIENT_ID`   | Google GIS client id for sign-in                                |
 
 Because `NEXT_PUBLIC_*` is inlined at build time, changing
@@ -84,8 +87,8 @@ Because `NEXT_PUBLIC_*` is inlined at build time, changing
 ## Run locally
 
 The synced `work/frontend/.env` mirrors the server. To run against the
-public backend, set `NEXT_PUBLIC_BACKEND_URL=http://70.30.158.46:43577`,
-then:
+public backend, set `NEXT_PUBLIC_BACKEND_URL=https://anichan.net` (or the
+origin `http://70.30.158.46:43577` for a direct hit), then:
 
 ```bash
 npm install
@@ -109,7 +112,7 @@ curl -fsS http://70.30.158.46:43879/
 ```
 
 `/deploy-frontend` drives this end-to-end. The build needs
-`NEXT_PUBLIC_BACKEND_URL=http://70.30.158.46:43577` passed as a build
+`NEXT_PUBLIC_BACKEND_URL=https://anichan.net` passed as a build
 arg (the on-server compose wires it from `/home/anime/frontend/.env`) —
 a wrong value here ships a frontend that points the browser at the wrong
 backend. There's a CI/CD alt (`.github/workflows/ci-cd.yml`) but it

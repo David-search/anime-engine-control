@@ -21,7 +21,7 @@ There is one read path and one write path:
 - **Serving (read)** — the FastAPI `backend` serves catalog / search /
   detail / browse / trending + auth + social entirely from Mongo / ES.
   AniList is **not** in the request path, with one cached exception:
-  `/catalog/trending` mirrors AniList `TRENDING_DESC`, cached in-process
+  `/api/catalog/trending` mirrors AniList `TRENDING_DESC`, cached in-process
   for 30 min.
 
 The frontend is an AniList-style filtered browse UI plus a rich detail
@@ -83,7 +83,7 @@ touches goongle's `rfp_db` or other ES indices. See
 AniList GraphQL is the only upstream. The **only** AniList caller is the
 ingest script (paced ~2.2 s/req; AniList caps offset pagination at 5000
 entries + degrades to ~30 req/min). The backend request path is pure
-Mongo/ES reads, with the single cached `/catalog/trending` exception
+Mongo/ES reads, with the single cached `/api/catalog/trending` exception
 above. MAL/Jikan + TMDB are possible **future** enrichment sources, not
 wired today.
 

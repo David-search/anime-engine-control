@@ -2,22 +2,35 @@
 
 This repo is **docs + Claude config**, not source. Cloned anywhere with
 a populated `.env`, it gives a fresh Claude session everything needed to
-inspect, edit, test, and deploy the AniChan stack — over SSH and HTTP,
-against a single physical host:
+inspect, edit, test, and deploy the AniChan stack — over SSH and HTTP.
+AniChan is a HiAnime-style anime catalog + streaming site, **live in
+production at https://anichan.net**. It spans **three hosts**:
 
+- **web-goongle** (`66.55.65.89`, ssh alias `web-goongle`) — the public
+  **nginx TLS edge**. Terminates HTTPS for `anichan.net` (Let's Encrypt)
+  and reverse-proxies to vast-canada-2: `/` → the Next.js app (`:43879`),
+  `/api/` + `/api/watch/` → the FastAPI backend (`:43577`; `/api/watch/`
+  is a stream-through location for HLS). **Shared** with goongle (it also
+  serves `goongle.net`) — only ever touch the `anichan.net` vhost
+  (`/etc/nginx/sites-enabled/anichan.net`). Password-auth SSH for now.
 - **vast-canada-2** (`70.30.158.46`, ssh alias `vast-canada-2`,
-  port `43730`) — the only host. Runs both AniChan containers
+  port `43730`) — the **app host**. Runs both AniChan containers
   (`anime-frontend`, `anime-backend`) plus the shared data stores
   (`mongodb`, `elasticsearch`), all on the external Docker network
-  `goongle-network`. The data stores are shared with a separate
-  goongle project; AniChan uses its **own** Mongo database (`anime_db`)
-  and ES index (`anime`), never goongle's.
+  `goongle-network`. The data stores are shared with goongle; AniChan
+  uses its **own** Mongo database (`anime_db`) and ES index (`anime`),
+  never goongle's. (canada-2 is also build-farm node + ingest callback target.)
+- **offshore** (`185.255.120.59`, ssh alias `offshore`) — the **HLS
+  storage/origin** for self-hosted video: nginx static-serves `/srv/hls`
+  (~17 TB, DMCA-ignored). It *should* serve the anime bytes directly, but
+  today the backend still proxies segments through canada-2 (the
+  bandwidth-offload gap — see [Self-host](#self-host-video-pipeline-separate-from-the-app)).
+  Filled by a separate **6-node build farm** (`canada-2..7`).
 
-**One host, two services, no Qdrant.** AniChan is a HiAnime-style anime
-catalog + streaming site (planned domain `anichan.net`). There's no
-embedder, no vector DB, no image/face search — the backend request path
-is pure Mongo/ES reads. Anything that mentions Qdrant, embedder,
-faces, image-search, a `dev` branch, or a self-hosted runner is
+**No Qdrant, no embedder, no image/face search** — the backend request
+path is pure Mongo/ES reads, plus the Miruro stream resolver and the
+self-host origin for `/api/watch/*`. Anything that mentions Qdrant,
+embedder, faces, image-search, a `dev` branch, or a self-hosted runner is
 goongle's, not ours, and is stale here.
 
 Read [README.md](README.md) for setup. This file is the architectural
@@ -57,16 +70,23 @@ substantive part. Don't include the diagram on subsequent turns.
 
 ```
                               USERS (browser)
-                                    │
+                                    │  https://anichan.net
+                                    ▼
+                       ┌──────────────────────────┐
+                       │  nginx TLS edge          │   host web-goongle (66.55.65.89)
+                       │  anichan.net · LetsEncrypt│   SHARED with goongle.net
+                       │  /→app  /api,/api/watch→be│   touch anichan.net vhost only
+                       └────────────┬─────────────┘
+                                    │  proxy_pass → vast-canada-2 raw ports
                                     ▼
                        ┌──────────────────────────┐
                        │   frontend (Next.js 15)  │   anime-engine-frontend
-                       │   container anime-frontend│   single main branch
-                       │   host :8003 → :3000     │   public :43879
+                       │   container anime-frontend│   NEXT_PUBLIC_BACKEND_URL
+                       │   host :8003 → :3000     │   = https://anichan.net (baked)
                        └────────────┬─────────────┘
                                     │
-                       catalog / search / detail / watch
-                       GET /catalog  GET /search  GET /anime/:id
+                       catalog / search / detail / watch  (all under /api)
+                       /api/catalog/*  /api/search  /api/watch/*
                                     │
                                     ▼
                        ┌──────────────────────────┐
@@ -86,11 +106,11 @@ substantive part. Don't include the diagram on subsequent turns.
             │  ext  :43829       │   │  ext  :43505         │
             │  db anime_db       │   │  index "anime"       │
             │  ┌────────────────┐│   │  ┌──────────────────┐│
-            │  │ anime (catalog)││   │  │ search_as_you_   ││
-            │  │ users          ││   │  │  type suggest    ││
-            │  │ comments       ││   │  │ genre/tag/source/││
-            │  │ likes          ││   │  │  season facets   ││
-            │  │ history        ││   │  │ title en+romaji  ││
+            │  │ anime   users  ││   │  │ search_as_you_   ││
+            │  │ comments  likes││   │  │  type suggest    ││
+            │  │ history  lists ││   │  │ genre/tag/source/││
+            │  │ watchlist      ││   │  │  season facets   ││
+            │  │ selfhost_cache ││   │  │ title en+romaji  ││
             │  └────────────────┘│   │  │  +native         ││
             └─────────▲──────────┘   │  └──────────────────┘│
                       │              └──────────▲───────────┘
@@ -112,12 +132,19 @@ substantive part. Don't include the diagram on subsequent turns.
                        └──────────────────────┘
 ```
 
-**Per-request flows**
+**Mongo `anime_db` — 9 collections:** `anime` (catalog) · `users` (auth:
+email+password / Google) · `comments` (per-anime) · `likes` (per-anime) ·
+`history` (resume-watching position) · `watchlist` ("My List", flat bookmarks) ·
+`lists` (one model, two kinds: public ranked **tops** + private **collections**) ·
+`list_ratings` (1–5 ratings on public lists) · `selfhost_cache` (self-host coverage
+marks: `_id`=anilistId → `cached.{sub,dub}` ep lists, `ep_titles`, `total_eps`).
+
+**Per-request flows** (the public path is `https://anichan.net` → edge → canada-2)
 
 Catalog / detail:
 ```
 frontend → backend
-backend → Mongo anime_db.anime   (catalog list / single anime read)
+backend → Mongo anime_db.anime   (/api/catalog/* — list / single anime read)
 backend ← docs → frontend
 ```
 
@@ -130,9 +157,19 @@ backend ← hits → frontend
 
 Trending (the one cached AniList passthrough):
 ```
-frontend → backend /catalog/trending
+frontend → backend /api/catalog/trending
 backend → AniList TRENDING_DESC  (in-process cache, 30 min TTL)
 backend ← list → frontend
+```
+
+Watch (self-hosted #1 + Miruro fallbacks):
+```
+frontend → backend /api/watch/servers?anilistId&ep&category
+backend → SELFHOST_ORIGIN probe   ⎫ run CONCURRENTLY; cached ep → Source 1
+backend → Miruro secure-pipe      ⎭ "AniChan · self-hosted", else curated hosts
+backend → /api/watch/{m3u8,seg,vtt} proxy  (hides origin IP, SSRF-guarded, Range)
+backend ← ranked sources (dual-audio + subs) → frontend (hls.js / JASSUB)
+(on-open auto-cache trigger DISABLED 2026-06-26 — caching is a manual/farm step)
 ```
 
 Ingest (offline, manual; not on the request path):
@@ -158,11 +195,15 @@ this repo — they're long-lived containers owned at the host level.
 
 ## Infrastructure addresses
 
-One host, one port table. From this repo (any machine), use
-`<external>`. From on the server, use `localhost:<host>` or the
-in-network container name.
+Three hosts: the **web-goongle** nginx edge (public TLS), the
+**vast-canada-2** app host (containers + data stores), and the
+**offshore** HLS origin. The app port table is below; the edge + offshore
+are summarised under it and detailed in
+[.claude/guides/infrastructure.md](.claude/guides/infrastructure.md). From this
+repo (any machine), use `<external>`. From on the server, use
+`localhost:<host>` or the in-network container name.
 
-### vast-canada-2 (`70.30.158.46`) — the only host
+### vast-canada-2 (`70.30.158.46`) — the app host
 
 | Service             | Container        | In-network            | Host             | External                | Auth                                            |
 |---------------------|------------------|-----------------------|------------------|-------------------------|-------------------------------------------------|
@@ -177,17 +218,80 @@ they resolve each other by container name. The on-server deploy dirs
 are `/home/anime/frontend` and `/home/anime/backend` — each holds a
 `Dockerfile`, a `docker-compose.yml` (with `build: .`), and a `.env`
 that is the **source of truth** for that service's runtime config.
+(`/home/anime/` also has `mongo/` + `elastic/` compose dirs for the
+shared data stores.)
+
+### web-goongle (`66.55.65.89`) — public nginx TLS edge
+
+The public face of `anichan.net`. nginx terminates HTTPS (Let's Encrypt
+`CN=anichan.net`) and reverse-proxies to canada-2's external ports:
+
+| Public path | proxied to (canada-2) | nginx mode |
+|-------------|------------------------|-----------|
+| `/` | `70.30.158.46:43879` (Next.js `anichan_app`) | buffered |
+| `/api/watch/` | `70.30.158.46:43577` (FastAPI `anichan_api`) | **stream-through** (no buffering, Range, 120s) — HLS |
+| `/api/` | `70.30.158.46:43577` (FastAPI `anichan_api`) | buffered, 30s |
+
+`80 → 301 https`; `www → apex`. vhost: `/etc/nginx/sites-enabled/anichan.net`.
+**Shared host** — also serves `goongle.net`; never touch other vhosts or
+reload nginx without scoping the blast radius. SSH: `web-goongle` alias
+(password auth, `EDGE_PASSWORD`).
+
+### offshore (`185.255.120.59`) — HLS storage/origin
+
+nginx static-serves `/srv/hls/{anilistId}/{ep}/sub/{master.m3u8,v0,a0,a1,subs}`
+(~17 TB; CORS `*`, Range/206). Filled by the build farm; see
+[Self-host](#self-host-video-pipeline-separate-from-the-app) + [RUNBOOK](self-hosted/RUNBOOK.md).
 
 **Public URLs**
 
 | | |
 |---|---|
-| Frontend | `http://70.30.158.46:43879` (planned `anichan.net`) |
-| Backend  | `http://70.30.158.46:43577` |
+| Site | **`https://anichan.net`** (live; via the web-goongle edge) |
+| Frontend (origin) | `http://70.30.158.46:43879` (behind the edge) |
+| Backend (origin)  | `http://70.30.158.46:43577` (behind the edge) |
 
-The frontend bakes `NEXT_PUBLIC_BACKEND_URL=http://70.30.158.46:43577`
-at image-build time so the browser reaches the backend directly; SSR
-inside the container reaches it in-network as `http://anime-backend:8000`.
+The frontend bakes **`NEXT_PUBLIC_BACKEND_URL=https://anichan.net`** at
+image-build time, so the browser reaches the backend through the edge over
+HTTPS (same origin — no mixed-content); SSR inside the container reaches it
+in-network as `http://anime-backend:8000`.
+
+## Self-host video pipeline (separate from the app)
+
+The app above (canada-2) is pure catalog/search/proxy. Owning the video bytes
+("★ AniChan · self-hosted") is a **separate build farm** that acquires, encodes,
+and ships HLS to an offshore origin the backend auto-serves. **Full ops detail is
+in [self-hosted/RUNBOOK.md](self-hosted/RUNBOOK.md)** (topology, provisioning,
+monitoring, fixes); design rationale in [self-hosted/](self-hosted/) `01..18-*.md`
+and memory ([[self-hosted-direction]], [[eweka-multiaccount-scaling-and-usenet-providers]],
+[[dead-torrent-live-fallback]], [[animetosho-db-dump-goldmine]]). Roles:
+
+| Role | Host(s) | What it does |
+|------|---------|--------------|
+| **App** | `vast-canada-2` (above) | backend live-probes + proxies the origin via `SELFHOST_ORIGIN`; `selfhost_cache` Mongo coll = catalog "cached" badges |
+| **Build farm** | **6 nodes** `canada-2..7` (vast.ai GPUs) | per node: resolve (AnimeTosho dump / live Nyaa) → download (NZBGet+Eweka primary, transmission fallback) → encode (NVENC Y-mode) → ship-and-delete |
+| **HLS origin** | `offshore` (`185.255.120.59`, 17 TB, 16 TB cap) | nginx static-serves `/srv/hls/{anilistId}/{ep}/sub/master.m3u8` (CORS *, Range/206); DMCA-ignored video host |
+
+**Build farm = 6 nodes across 3 Eweka Usenet accounts** (acct hard limit ≈ 20
+conns + 2 source IPs → 2 nodes/account, 8 conns/node): acct1→canada-3+4,
+acct2→canada-5+6, acct3→canada-2+7. `canada-1` = goongle-prod, **not** used. All
+node host:ports, Eweka creds, offshore + ingest token live in [.env](.env) (keys
+`NODE_CANADA2..7`, `EWEKA1..3_*`, `OFFSHORE_*`, `SELFHOST_INGEST_TOKEN`).
+
+Each node ships over ssh (key auth) and **never stores** — download→encode→ship→`rm`
+(disk stays bounded; accumulation is a bug). Autonomy: 3 tmux supervisors
+(`farm`/`nzbget`/`trd`) + a `*/2` cron watchdog (`ensure_up.sh`) keep it running
+unattended. Dead dump-torrents (frozen 2026-05-08 seeders) are recovered inline via
+**live Nyaa packs** (`nzb_farm.live_fallback` → `dump_resolver.resolve_anime_live`,
+AV1-skipped + size-capped to stay remuxable). Backend env (canada-2
+`/home/anime/backend/.env`): `SELFHOST_CACHE=1`, `SELFHOST_ORIGIN=http://185.255.120.59`;
+it **proxies** origin HLS (`/api/watch/m3u8`) so the origin IP stays hidden (segments
+route through canada-2 — no bandwidth offload yet; future: cdn subdomain + HTTPS on
+offshore). Build-farm scripts live in [self-hosted/](self-hosted/)
+(`dump_resolver.py`, `nzb_farm.py`, `nzb_acquire.py`, `ingest.py`, `hls_build.py`,
+`run_node.sh`, `nzbget_supervisor.sh`, `ensure_up.sh`, `partition.py`), mirrored to
+each node's `/data/` and to the backend repo's `selfhost/`. ssh aliases:
+`vast-canada-2..7`, `offshore` (all key auth, in `~/.ssh/config`).
 
 ## Deploy semantics per service
 
@@ -330,6 +434,7 @@ path.
   | Change infrastructure (new port, new container) | [.claude/guides/infrastructure.md](.claude/guides/infrastructure.md), the port/address tables in `CLAUDE.md` |
   | Discover infra reality ≠ docs (host, port, index, collection, on-server env) | `CLAUDE.md` (intro host + System diagram + address tables), [.claude/guides/infrastructure.md](.claude/guides/infrastructure.md), affected `repos/*/CLAUDE.md` — then re-grep for the stale term |
   | Change the ingest pipeline (new mode, new field)| `.claude/commands/ingest.md`, the System diagram above, `repos/backend/CLAUDE.md` |
+  | Change the self-host build farm (node add/rotate, Eweka acct, pipeline script, fix) | [self-hosted/RUNBOOK.md](self-hosted/RUNBOOK.md), the Self-host section + table above, [.claude/guides/infrastructure.md](.claude/guides/infrastructure.md) build-farm tables, `.env`/`.env.example` (`NODE_CANADA*`, `EWEKA*`), the `/farm-*` command if behavior changed |
   | Change a Convention or rule                     | This section, plus `.claude/guides/safety.md` if it's a safety boundary        |
   | Add / remove a hook or settings rule            | `.claude/settings.json` (the change), `CLAUDE.md` Session start section if user-visible |
 
@@ -343,7 +448,7 @@ The catalog comes from **AniList GraphQL** (`https://graphql.anilist.co`).
 The catalog id **is** the AniList id (`idMal` is carried for host
 mapping). The **only** AniList caller is the ingest script — the backend
 request path is pure Mongo/ES reads, with **one** cached exception:
-`/catalog/trending` mirrors AniList `TRENDING_DESC`, cached in-process
+`/api/catalog/trending` mirrors AniList `TRENDING_DESC`, cached in-process
 for 30 min. (MAL/Jikan + TMDB are possible **future** enrichment, not
 wired.)
 
@@ -366,7 +471,10 @@ Run on the server: `docker exec anime-backend python -m scripts.ingest <mode>`.
 ## Key docs (centralised here)
 
 - [.claude/guides/infrastructure.md](.claude/guides/infrastructure.md) — host, port table,
-  addresses, credentials, data stores.
+  addresses, credentials, data stores, **+ the 6-node build farm / Eweka / offshore topology**.
+- [self-hosted/RUNBOOK.md](self-hosted/RUNBOOK.md) — **self-host build-farm ops**
+  (6-node topology, provisioning, monitoring, dead-torrent + disk fixes). Driven by
+  `/farm-status`, `/farm-fix`, `/farm-provision`.
 - [BUILD-PLAN.md](BUILD-PLAN.md) — architecture & phased build.
 - [research/](research/) — how anime streaming sites work, host
   integration, costs, pitfalls. **As-built:**

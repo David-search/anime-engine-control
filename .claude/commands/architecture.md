@@ -13,7 +13,7 @@ walkthrough of how AniChan fits together:
   indexes into ES `anime`.
 - **Backend (FastAPI, `anime-backend`).** Serves catalog / search / detail /
   browse / auth / social **purely from Mongo + ES** — no AniList on the request
-  path, with the single cached exception `/catalog/trending` (mirrors AniList
+  path, with the single cached exception `/api/catalog/trending` (mirrors AniList
   `TRENDING_DESC`, 30-min in-process cache).
 - **Frontend (Next.js 15, `anime-frontend`).** AniList-style filter UI on
   `/search`, rich detail page on `/anime/[id]`, MegaPlay iframe player on

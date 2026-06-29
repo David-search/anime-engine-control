@@ -45,6 +45,12 @@ def enqueue(aid, ep):
         return {"err": str(e)}
 
 def run_once():
+    # DISABLED (2026-06-26): proactive pre-cache / downloads are turned off. Self-host
+    # builds are now a manual / build-farm step — nothing should auto-trigger torrents
+    # or encodes. The original loop is kept below (unreachable) for reference; delete
+    # this guard to re-enable.
+    print("[precache] DISABLED — auto pre-cache/downloads are off (manual builds only)")
+    return
     try:
         slate = airing_slate(TOP_N)
     except Exception as e:  # noqa: BLE001

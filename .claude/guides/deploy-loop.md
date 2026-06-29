@@ -30,7 +30,7 @@ rsync -az -e 'ssh -p 43730' --exclude '.git' --exclude '.env' \
 ssh vast-canada-2 'cd /home/anime/backend && docker compose up -d --build'
 
 # 5. Verify the public health URL
-curl -sS http://70.30.158.46:43577/catalog/trending
+curl -sS http://70.30.158.46:43577/api/catalog/trending
 ```
 
 `docker compose up -d --build` rebuilds the image in-place on the server
@@ -67,7 +67,7 @@ ssh `docker load` + `docker compose up -d`. It currently **FAILS** until
 the repo owner adds the GitHub Actions secrets:
 
 - `SERVER_SSH_KEY` (both repos)
-- `NEXT_PUBLIC_BACKEND_URL=http://70.30.158.46:43577` (frontend)
+- `NEXT_PUBLIC_BACKEND_URL=https://anichan.net` (frontend — public HTTPS origin via the edge)
 
 Claude **cannot** set GitHub secrets — only the owner can, in repo
 **Settings → Secrets and variables → Actions**. Until then, use the
@@ -87,7 +87,7 @@ source rsync (step 3) so you don't overwrite it. See [secrets.md](secrets.md).
 
 ```bash
 # Backend responds (catalog read path is pure Mongo/ES)
-curl -sS http://70.30.158.46:43577/catalog/trending
+curl -sS http://70.30.158.46:43577/api/catalog/trending
 curl -sS "http://70.30.158.46:43577/api/search?q=frieren"
 
 # Frontend up

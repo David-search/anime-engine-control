@@ -1,19 +1,26 @@
 # Infrastructure — addresses, ports, credentials
 
 
-One host. Both AniChan services + the shared data stores run as Docker
-containers on it, on the external docker network **`goongle-network`**,
-so they reach each other by container name. The host publishes internal
-ports which vast.ai maps to public ports on `70.30.158.46`.
+**Three hosts.** The public domain `https://anichan.net` is served by an
+**nginx TLS edge on web-goongle**, which reverse-proxies to the **app host
+vast-canada-2** (containers + shared data stores); self-hosted video bytes
+live on the **offshore HLS origin** (filled by a 6-node build farm). The app
+port table is first; the edge, offshore, and build farm follow.
 
-- **vast-canada-2** (`70.30.158.46`, ssh alias `vast-canada-2`) — the
-  one and only AniChan host. Runs `anime-frontend` + `anime-backend`,
-  and shares `mongodb` / `elasticsearch` (and the goongle project's own
-  containers) on the same docker network.
+- **web-goongle** (`66.55.65.89`, ssh alias `web-goongle`) — public nginx
+  TLS edge for `anichan.net` (and `goongle.net` — shared). See
+  [§ Public edge](#public-edge--web-goongle).
+- **vast-canada-2** (`70.30.158.46`, ssh alias `vast-canada-2`) — the app
+  host. Runs `anime-frontend` + `anime-backend`, and shares `mongodb` /
+  `elasticsearch` (+ goongle's own containers) on the external docker
+  network **`goongle-network`** (they reach each other by container name).
+  vast.ai maps the host's internal ports to public ports on `70.30.158.46`.
+- **offshore** (`185.255.120.59`, ssh alias `offshore`) — HLS storage/origin.
+  See [§ Self-host build farm](#self-host-build-farm-separate-fleet).
 
 Use the **container name** (e.g. `mongodb:27017`) when on the same
 docker network as the target; the **external public** port from anywhere
-else.
+else; and **`https://anichan.net`** for the real public request path.
 
 ## Port map — host → external public on `70.30.158.46`
 
@@ -27,14 +34,38 @@ else.
 
 Public service URLs:
 
-- backend  — `http://70.30.158.46:43577`
-- frontend — `http://70.30.158.46:43879`
+- **site (public)** — `https://anichan.net` (via the web-goongle edge)
+- backend (origin) — `http://70.30.158.46:43577` (behind the edge)
+- frontend (origin) — `http://70.30.158.46:43879` (behind the edge)
 
 The frontend reaches the backend two ways:
 
 - **SSR (server→server, in-network):** `http://anime-backend:8000`
-- **Browser (client→public):** `NEXT_PUBLIC_BACKEND_URL=http://70.30.158.46:43577`
-  — baked into the image at **build** time (it's a `NEXT_PUBLIC_*` var).
+- **Browser (client→public):** `NEXT_PUBLIC_BACKEND_URL=https://anichan.net`
+  — baked into the image at **build** time (it's a `NEXT_PUBLIC_*` var). Must be
+  the public HTTPS origin; an `http://IP:port` here would be mixed-content-blocked.
+
+## Public edge — web-goongle
+
+`https://anichan.net` is **not** served by canada-2 directly. The public face is
+an **nginx TLS edge on web-goongle** (`66.55.65.89`, ssh alias `web-goongle`,
+root, **password** auth — `EDGE_PASSWORD` in `.env`). It terminates HTTPS
+(Let's Encrypt `CN=anichan.net`) and reverse-proxies to canada-2's external ports:
+
+| Public path   | upstream (canada-2)                            | nginx mode |
+|---------------|------------------------------------------------|-----------|
+| `/`           | `70.30.158.46:43879` (`anichan_app`, Next.js)  | buffered |
+| `/api/watch/` | `70.30.158.46:43577` (`anichan_api`, FastAPI)  | **stream-through** — `proxy_buffering off`, Range, 120s (HLS) |
+| `/api/`       | `70.30.158.46:43577` (`anichan_api`, FastAPI)  | buffered, 30s |
+
+`:80 → 301 https`; `www → apex`. vhost `/etc/nginx/sites-enabled/anichan.net`;
+upstreams `anichan_app` / `anichan_api` (`least_conn`, `keepalive 32`, `max_fails=32`).
+The `/api/watch/` location is listed **before** `/api/` so HLS gets the
+stream-through block.
+
+⚠️ **Shared host** — web-goongle also serves `goongle.net` (and other vhosts).
+Only ever edit the `anichan.net` vhost; scope any `nginx -t` / reload so you don't
+disturb goongle. Certs renew via the host's existing certbot.
 
 ## Shared infra — MongoDB + Elasticsearch
 
@@ -47,8 +78,20 @@ goongle's `rfp_db` or other indices. See [safety.md](safety.md).
 | MongoDB          | `mongodb`       | `mongodb:27017`   | `70.30.158.46:43829`| `admin` / `<stored in control .env on the server>` | db `anime_db`       |
 | Elasticsearch 8.13 | `elasticsearch` | `elasticsearch:9200` | `70.30.158.46:43505`| `elastic` / `<stored in control .env on the server>` | index `anime`       |
 
-**MongoDB `anime_db`** collections: `anime` (catalog), `users`,
-`comments`, `likes`, `history`.
+**MongoDB `anime_db`** — 9 collections (indexes created on boot by
+`app/db.py:ensure_indexes`):
+
+| Collection | Usage | Key index |
+|------------|-------|-----------|
+| `anime` | catalog (AniList mirror + heavy fields); `_id` = AniList id | `idMal`, `genres`, `startDate.year`, `popularity` |
+| `users` | auth accounts (email+password / Google `provider`) | `email` unique |
+| `comments` | per-anime comments | `(anime_id, created desc)` |
+| `likes` | per-anime likes | `(anime_id, user_id)` unique |
+| `history` | resume-watching (ep + position per user/anime) | `(user_id, anime_id)` unique |
+| `watchlist` | "My List" — flat bookmarks, denormalised title/poster | `(user_id, anime_id)` unique |
+| `lists` | user lists: public ranked **tops** + private **collections** (`kind`) | `(user_id, updated)`, `(kind, public, ratingAvg)` |
+| `list_ratings` | 1–5 ratings on public lists | `(list_id, user_id)` unique |
+| `selfhost_cache` | self-host coverage marks (`_id`=anilistId → `cached.{sub,dub}`, `ep_titles`, `total_eps`); written by the build-farm `cache-state` callback | — |
 
 **Elasticsearch `anime` index**: `search_as_you_type` suggest;
 genres / tags / source / season facets; multilingual title search
@@ -86,11 +129,16 @@ curl -sS -u "$ELASTIC_USER:$ELASTIC_PASSWORD" "$ELASTIC_URL/anime/_count"
 # Mongo ping + catalog count
 mongosh "$MONGO_URI" --eval 'db.adminCommand({ping:1}); db.anime.countDocuments()'
 
-# Backend health + a real catalog read
-curl -sS "http://70.30.158.46:43577/catalog/trending"
+# Backend health + a real catalog read (note: every route is under /api)
+curl -sS "http://70.30.158.46:43577/health"
+curl -sS "http://70.30.158.46:43577/api/catalog/trending"
 curl -sS "http://70.30.158.46:43577/api/search?q=frieren"
 
-# Frontend up
+# Through the PUBLIC edge (what the browser actually hits)
+curl -sS -o /dev/null -w '%{http_code}\n' "https://anichan.net/"
+curl -sS "https://anichan.net/api/catalog/trending"
+
+# Frontend origin up
 curl -sS -o /dev/null -w '%{http_code}\n' "http://70.30.158.46:43879"
 ```
 
@@ -111,3 +159,61 @@ Lands at `/root`. On-server deploy dirs:
 
 Each `.env` is the **source of truth** for that service's runtime config.
 See [deploy-loop.md](deploy-loop.md).
+
+## Self-host build farm (separate fleet)
+
+The app host above is pure catalog/search/proxy. The video bytes behind
+"★ AniChan · self-hosted" come from a **separate 6-node GPU build farm** that
+ships HLS to an offshore origin. This is operationally independent of the app —
+**full runbook: [../../self-hosted/RUNBOOK.md](../../self-hosted/RUNBOOK.md).** The
+addresses below are a quick reference; the live source of truth is [../../.env](../../.env)
+(keys `NODE_CANADA2..7`, `EWEKA1..3_*`, `OFFSHORE_*`, `SELFHOST_*`). vast.ai
+host:ports **rotate** as instances are rented/killed — keep `~/.ssh/config` and
+`.env` in sync; these markdown values are a snapshot.
+
+### Build nodes — 6× vast.ai GPU (ssh aliases `vast-canada-2..7`)
+
+| Node | host:port (rotates) | Eweka acct | GPU | egress IP |
+|------|---------------------|-----------|-----|-----------|
+| canada-2 | `70.30.158.46:43730` | acct3 `e7e6…` | RTX 4060 Ti | 70.30.158.46 (also the app host) |
+| canada-3 | `152.160.24.154:12173` | acct1 `d281…` | RTX A4000 | 152.160.24.154 |
+| canada-4 | `162.239.74.119:15699` | acct1 `d281…` | RTX 4060 Ti | 162.239.74.119 |
+| canada-5 | `38.64.28.7:28783` | acct2 `5edd…` | RTX 2060 (nzbget-flaky on big BD) | 38.64.28.7 |
+| canada-6 | `192.165.134.28:13167` | acct2 `5edd…` | RTX 4070 Ti | 192.165.134.28 |
+| canada-7 | `184.145.198.147:16656` | acct3 `e7e6…` | GTX 1070 Ti | 184.145.198.147 |
+
+`canada-1` (`70.30.221.109:52572`) = **goongle-prod, NOT used** for the anime fill.
+
+### Eweka Usenet — 3 accounts, 2 nodes each
+
+Hard limit per account: **≈ 20 connections AND max 2 simultaneous source IPs** →
+2 nodes/account (2 distinct egress IPs), **8 conns/node**. Host `news.eweka.nl:563`
+(SSL NNTP). Accounts (creds in `.env` `EWEKA1..3_*`): acct1 `d281…` → canada-3+4,
+acct2 `5edd…` → canada-5+6, acct3 `e7e6…` → canada-2+7. AnimeTosho is Omicron-only,
+so a 2nd backbone doesn't help — dead torrents are recovered via live Nyaa instead.
+
+### Offshore HLS origin (`offshore` ssh alias)
+
+| | |
+|---|---|
+| Host | `185.255.120.59` (root, key auth; password in `.env` `OFFSHORE_PASSWORD`, rotate + disable pw auth) |
+| Serves | nginx static `/srv/hls/{anilistId}/{ep}/sub/master.m3u8` (CORS `*`, Range/206) |
+| Capacity | ~17 TB disk, **16 TB usable cap** (disk-guard stops farms if `/srv` < 1.5 TB free) |
+| Backend wiring | canada-2 `/home/anime/backend/.env`: `SELFHOST_ORIGIN=http://185.255.120.59`, `SELFHOST_CACHE=1` |
+
+The backend **proxies** origin HLS via `/api/watch/m3u8` (origin IP stays hidden);
+coverage marks land in Mongo `anime_db.selfhost_cache` (gated by `SELFHOST_INGEST_TOKEN`).
+
+### Quick farm probes
+
+```bash
+set -a && source .env && set +a
+# per-node health (nzbget/farm/transmission up, shipped count, free disk)
+for N in 2 3 4 5 6 7; do
+  ssh vast-canada-$N 'echo "c'$N': nzbget=$(ps -C nzbget --no-headers|wc -l) \
+    farm=$(pgrep -fc "[n]zb_farm.py") done=$(wc -l </data/done_node.jsonl) \
+    free=$(df -h /data|tail -1|awk "{print \$4}")"'
+done
+# offshore: episodes shipped + disk used
+ssh offshore 'find /srv/hls -name master.m3u8 | wc -l; du -sh /srv/hls; df -h /srv | tail -1'
+```

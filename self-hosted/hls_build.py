@@ -10,14 +10,17 @@ transcode ever.
 
   out/{animeId}/{ep}/{cat}/
     master.m3u8         # renditions + EXT-X-MEDIA audio/subtitle groups
-    v0/ index.m3u8 seg*.ts   # native master (remux if H.264/8bit, else NVENC)
+    v0/ index.m3u8 seg*.ts   # native res (re-encoded to CQ target; --remux-native to copy)
     v1/ ...  720      v2/ ...  480     (NVENC, built ONCE, cached static)
     a0/ a1/ ...              # one HLS-AAC rendition per audio track (sub+dub)
     subs/ <lang><n>.vtt + .m3u8 (+ original .ass)   # EVERY text subtitle track
 
-Master: remux (`-c:v copy`, ~instant lossless) when source is H.264/8-bit, else
-NVENC encode to H.264/8-bit (browser compat). Lower renditions always NVENC.
-Every step timed; JSON report printed (sizes, realtime factors, segment stats).
+Every rendition (native + downscaled) is re-encoded to an anime-tuned CONSTANT-QUALITY
+target (NVENC CQ / libx264 CRF, with a maxrate ceiling) so each cached 1080p is a
+consistent ~3 Mbps instead of passing a fat WEB-DL/BD source straight through. Pass
+--remux-native to losslessly copy an H.264/8-bit source instead (opt-in). Lower
+renditions always encode (NVENC, or libx264 with --no-nvenc). Every step timed; JSON
+report printed (sizes, mbps, realtime factors, segment stats).
 """
 import json, os, shutil, subprocess, sys, time, argparse
 
@@ -60,36 +63,73 @@ def dir_bytes(d):
 def seg_stats(d):
     segs = [os.path.join(d, f) for f in os.listdir(d) if f.endswith(".ts")]
     if not segs:
-        return {"count": 0, "avg_kb": 0}
-    tot = sum(os.path.getsize(s) for s in segs)
-    return {"count": len(segs), "avg_kb": round(tot / len(segs) / 1024, 1)}
+        return {"count": 0, "avg_kb": 0, "max_kb": 0}
+    sizes = [os.path.getsize(s) for s in segs]
+    tot = sum(sizes)
+    return {"count": len(segs), "avg_kb": round(tot / len(segs) / 1024, 1),
+            "max_kb": round(max(sizes) / 1024, 1)}
 
-HLS_COMMON = ["-hls_time", "6", "-hls_playlist_type", "vod",
+HLS_TIME = 6
+HLS_COMMON = ["-hls_time", str(HLS_TIME), "-hls_playlist_type", "vod",
               "-hls_flags", "independent_segments", "-hls_segment_type", "mpegts"]
 
-def build_video_rendition(src, outdir, height, src_is_h264_8bit, native, use_nvenc):
+# Anime-tuned CONSTANT-QUALITY ladder. cq (NVENC) / crf (libx264) drive perceptual
+# quality, NOT a fixed bitrate; maxrate is only a safety ceiling so a grainy or
+# high-motion scene can't blow the file up. Anime compresses extremely well, so
+# typical output lands far below the ceiling (~2-3 Mbps @1080p). The native
+# (source-resolution) rendition is now ALWAYS re-encoded to this target — we no
+# longer remux fat WEB-DL/BD sources straight through, so every cached 1080p is a
+# consistent ~3 Mbps. Tune with --cq (native rendition) or per-height here.
+QUALITY = {
+    1080: {"cq": 24, "crf": 21, "maxrate": "5000k"},
+    720:  {"cq": 24, "crf": 21, "maxrate": "2800k"},
+    480:  {"cq": 25, "crf": 22, "maxrate": "1400k"},
+}
+DEFAULT_Q = {"cq": 24, "crf": 21, "maxrate": "5000k"}
+X264_PRESET = os.getenv("HLS_X264_PRESET", "slow")   # libx264 (CPU) preset; "veryfast" for build-farm CPU workers
+
+def _double_rate(r):
+    """'5000k' -> '10000k' (2x maxrate is a sane VBV bufsize)."""
+    try:
+        return f"{int(str(r).rstrip('k')) * 2}k"
+    except ValueError:
+        return r
+
+def build_video_rendition(src, outdir, height, native, src_is_h264_8bit, use_nvenc, q, allow_remux=False):
+    """Build one HLS video rendition. The native (source-resolution) rendition and the
+    downscaled rungs are ALL re-encoded to the constant-quality target in `q`
+    ({cq,crf,maxrate}). Only re-muxes losslessly when allow_remux + H.264/8-bit source
+    (opt-in escape hatch; OFF by default so fat WEB-DL/BD sources get normalised)."""
     os.makedirs(outdir, exist_ok=True)
     seg = os.path.join(outdir, "seg%03d.ts")
     idx = os.path.join(outdir, "index.m3u8")
-    if native and src_is_h264_8bit:
+    if native and allow_remux and src_is_h264_8bit:
         cmd = ["ffmpeg", "-y", "-i", src, "-map", "0:v:0", "-c:v", "copy", "-an", "-sn",
                *HLS_COMMON, "-hls_segment_filename", seg, idx]
         mode = "remux"
     else:
-        vcodec = "h264_nvenc" if use_nvenc else "libx264"
-        br = {1080: "3000k", 720: "2000k", 480: "1000k"}.get(height, "3000k")
-        maxr = {1080: "4500k", 720: "3000k", 480: "1500k"}.get(height, "4500k")
-        vf = "scale=-2:trunc(ih/2)*2" if native else f"scale=-2:{height}"
-        enc = [vcodec]
+        maxr = q["maxrate"]; buf = maxr   # NVENC VBV: bufsize==maxrate (2x gave no tighter cap)
+        # Normalise to 8-bit 4:2:0 IN THE FILTER GRAPH, before the encoder. Anime sources are
+        # very often 10-bit (Hi10P, yuv420p10le) or occasionally 4:4:4 (yuv444p10le); h264_nvenc
+        # is an 8-bit encoder and REJECTS those at runtime (exit 1) unless the frames are
+        # converted up front. Output -pix_fmt alone doesn't force the pre-encoder conversion.
+        scale = "scale=-2:trunc(ih/2)*2" if native else f"scale=-2:{height}"
+        vf = scale + ",format=yuv420p"
         if use_nvenc:
-            enc += ["-preset", "p5", "-rc", "vbr", "-b:v", br, "-maxrate", maxr,
-                    "-bufsize", maxr, "-pix_fmt", "yuv420p", "-profile:v", "high"]
+            cq = q["cq"]
+            enc = ["h264_nvenc", "-preset", "p5", "-rc", "vbr", "-cq", str(cq),
+                   "-b:v", "0", "-maxrate", maxr, "-bufsize", buf,
+                   "-spatial-aq", "1", "-temporal-aq", "1", "-rc-lookahead", "20",
+                   "-pix_fmt", "yuv420p", "-profile:v", "high"]
+            mode = f"nvenc cq{cq}"
         else:
-            enc += ["-preset", "veryfast", "-b:v", br, "-maxrate", maxr,
-                    "-bufsize", maxr, "-pix_fmt", "yuv420p"]
+            crf = q["crf"]
+            enc = ["libx264", "-preset", X264_PRESET, "-crf", str(crf),
+                   "-maxrate", maxr, "-bufsize", buf, "-tune", "animation",
+                   "-pix_fmt", "yuv420p", "-profile:v", "high"]
+            mode = f"x264 crf{crf}"
         cmd = ["ffmpeg", "-y", "-i", src, "-map", "0:v:0", "-vf", vf, "-c:v", *enc, "-an", "-sn",
                *HLS_COMMON, "-hls_segment_filename", seg, idx]
-        mode = vcodec
     dt, _, _ = run(cmd)
     return {"mode": mode, "seconds": round(dt, 2), "bytes": dir_bytes(outdir), **seg_stats(outdir)}
 
@@ -173,6 +213,12 @@ def main():
     ap.add_argument("out")
     ap.add_argument("--renditions", default="1080,720,480")
     ap.add_argument("--no-nvenc", action="store_true")
+    ap.add_argument("--cq", type=int, default=None,
+                    help="override NVENC CQ for the native rendition "
+                         "(default %d; lower = better quality / bigger)" % QUALITY[1080]["cq"])
+    ap.add_argument("--remux-native", action="store_true",
+                    help="losslessly copy the native rendition when source is H.264/8-bit "
+                         "instead of re-encoding (keeps the source's bitrate; OFF by default)")
     args = ap.parse_args()
 
     if os.path.exists(args.out):
@@ -204,24 +250,45 @@ def main():
 
     video_rends_meta = []
     for name, h, native in ladder:
+        q = dict(QUALITY.get(h, DEFAULT_Q))
+        if native and args.cq is not None:
+            q["cq"] = args.cq
         m = build_video_rendition(args.src, os.path.join(args.out, name), h,
-                                  src_is_h264_8bit, native, use_nvenc)
+                                  native, src_is_h264_8bit, use_nvenc, q,
+                                  allow_remux=args.remux_native)
         m["realtime_x"] = round(duration / m["seconds"], 1) if m["seconds"] > 0 else None
+        m["mbps"] = round(m["bytes"] * 8 / duration / 1e6, 2) if duration > 0 else None
         m.update({"name": name, "height": h, "native": native})
         report["video"].append(m)
-        br = {1080: 3000000, 720: 2000000, 480: 1000000}.get(h, 3000000)
+        # Declare BANDWIDTH from the ACTUAL encode. NVENC's maxrate is soft, so a few
+        # complex segments overshoot ~50%; using the single peak segment would over-
+        # declare (one 8 MB keyframe seg → 11 Mbps) and make ABR avoid this rung on
+        # capable links. avg×1.5 gives realistic burst headroom (the player's segment
+        # buffer absorbs brief spikes as long as the average fits the link).
+        avg_bps = int(m["bytes"] * 8 / duration) if duration > 0 else 0
+        bandwidth = max(int(avg_bps * 1.5), 200000)
         w = int(round(h * 16 / 9 / 2) * 2)
-        video_rends_meta.append({"bandwidth": br, "resolution": f"{w}x{h}", "uri": f"{name}/index.m3u8"})
+        video_rends_meta.append({"bandwidth": bandwidth, "resolution": f"{w}x{h}", "uri": f"{name}/index.m3u8"})
 
+    # Keep only Japanese (original) + English (dub) audio. Other-language dubs aren't served, and
+    # each extra track is a full sequential AAC re-encode — the dominant encode cost on multi-dub
+    # BD releases (an 11-audio rip spent ~7 min mostly here). map uses the ORIGINAL audio index;
+    # output dir uses the new compact index. Fallback: if nothing matches, keep the first track.
+    def _alang(s): return ((s.get("tags") or {}).get("language") or "").lower()
+    KEEP_AUD = {"ja", "jpn", "jp", "en", "eng", "und"}
+    keep_idx = [i for i, s in enumerate(astreams) if _alang(s) in KEEP_AUD or _alang(s)[:2] in ("ja", "en")]
+    if not keep_idx:
+        keep_idx = list(range(min(1, len(astreams))))
     audio_rends_meta = []
-    for i, a in enumerate(astreams):
-        m = build_audio_rendition(args.src, os.path.join(args.out, f"a{i}"), i)
+    for new_i, i in enumerate(keep_idx):
+        a = astreams[i]
+        m = build_audio_rendition(args.src, os.path.join(args.out, f"a{new_i}"), i)
         tags = a.get("tags", {}) or {}
         lang = tags.get("language", f"a{i}")
         nm = lang_name(lang, tags.get("title"))
         m.update({"name": nm, "lang": lang})
         report["audio"].append(m)
-        audio_rends_meta.append({"name": nm, "lang": lang, "uri": f"a{i}/index.m3u8"})
+        audio_rends_meta.append({"name": nm, "lang": lang, "uri": f"a{new_i}/index.m3u8"})
 
     sub_rends_meta = []
     sub_tracks = []   # for subs/tracks.json (ASS + VTT per language, for JASSUB)
