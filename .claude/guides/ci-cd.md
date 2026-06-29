@@ -51,7 +51,7 @@ The workflows reference repo secrets that haven't been added yet:
 | Secret                    | Needed by         | Value                                   |
 |---------------------------|-------------------|-----------------------------------------|
 | `SERVER_SSH_KEY`          | both repos        | the private key for `root@70.30.158.46:43730` |
-| `NEXT_PUBLIC_BACKEND_URL` | frontend repo     | `http://70.30.158.46:43577`             |
+| `NEXT_PUBLIC_BACKEND_URL` | frontend repo     | `https://anichan.net` (public HTTPS origin via the edge) |
 
 Without `SERVER_SSH_KEY`, the scp/ssh steps can't authenticate and the
 job fails. Without `NEXT_PUBLIC_BACKEND_URL`, the frontend build bakes a

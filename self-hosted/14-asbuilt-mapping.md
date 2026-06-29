@@ -1,5 +1,12 @@
 # 14 · As-built: mapping, discovery & selection
 
+> ⚠️ **HISTORICAL as-built snapshot (2026-06-26) — NOT the current topology.** The video
+> origin has since **migrated from `vast-canada-3` to offshore (`185.255.120.59`)**, the
+> build farm is now **6 nodes** (`canada-2..7`), and serving is via the **Bunny CDN**
+> (`cdn.anichan.net`, token-signed). Trust this doc for the *design & logic*, NOT for the
+> hosts/IPs/ports. CURRENT state: [STATE.md](../STATE.md) · [RUNBOOK.md](RUNBOOK.md) ·
+> [19-cdn-token-auth-and-hardening.md](19-cdn-token-auth-and-hardening.md) · CLAUDE.md.
+
 > Status: **as-built** (2026-06-26). The eid-driven, split-cour-proof rework
 > from [13-mapping-rethink.md](13-mapping-rethink.md) is now implemented and live
 > in [`ingest.py`](ingest.py) + [`relparser.py`](relparser.py). This doc

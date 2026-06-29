@@ -83,6 +83,6 @@ cd work/frontend && git add -A \
 
 It **fails until the repo owner adds the GitHub Actions secrets
 `SERVER_SSH_KEY`** (private key for `root@70.30.158.46:43730`) **and
-`NEXT_PUBLIC_BACKEND_URL`** (= `http://70.30.158.46:43577`, needed as the
+`NEXT_PUBLIC_BACKEND_URL`** (= `https://anichan.net`, needed as the
 build arg). Claude cannot set GitHub secrets — only the owner can, in repo
 Settings → Secrets. Until then, use the build-on-server flow above.

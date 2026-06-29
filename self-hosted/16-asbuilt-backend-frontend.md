@@ -1,5 +1,12 @@
 # 16 · As-built: backend integration & frontend
 
+> ⚠️ **HISTORICAL as-built snapshot (2026-06-26) — NOT the current topology.** The video
+> origin has since **migrated from `vast-canada-3` to offshore (`185.255.120.59`)**, the
+> build farm is now **6 nodes** (`canada-2..7`), and serving is via the **Bunny CDN**
+> (`cdn.anichan.net`, token-signed) — the backend now emits direct signed CDN URLs, not
+> just the proxy this doc describes. Trust this for the *design & logic*. CURRENT state:
+> [STATE.md](../STATE.md) · [RUNBOOK.md](RUNBOOK.md) · [19-cdn-token-auth-and-hardening.md](19-cdn-token-auth-and-hardening.md) · CLAUDE.md.
+
 > How the self-hosted video origin (vast-canada-3) plugs into the **live**
 > AniChan site on vast-canada-2: the star **AniChan** source, the HLS proxy that
 > hides the origin IP, the token-auth cache-state index, and the UI that surfaces

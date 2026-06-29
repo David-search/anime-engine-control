@@ -16,10 +16,12 @@ walkthrough of how AniChan fits together:
   path, with the single cached exception `/api/catalog/trending` (mirrors AniList
   `TRENDING_DESC`, 30-min in-process cache).
 - **Frontend (Next.js 15, `anime-frontend`).** AniList-style filter UI on
-  `/search`, rich detail page on `/anime/[id]`, MegaPlay iframe player on
-  `/watch/[id]/[ep]`. Auth via email/password + Google GIS.
-- **One host** (`vast-canada-2`), Mongo + ES **shared with goongle** (AniChan
-  owns only `anime_db` / the `anime` index).
+  `/search`, rich detail page on `/anime/[id]`, and an **hls.js + JASSUB** watch
+  panel on `/watch/[id]/[ep]` (self-host Source 1 + Miruro-resolved hosts). Auth
+  via email/password + Google GIS.
+- **Three hosts:** web-goongle nginx edge (`https://anichan.net`) → `vast-canada-2`
+  app (frontend + backend + Mongo/ES **shared with goongle** — AniChan owns only
+  `anime_db` / the `anime` index) → offshore HLS origin (+ Bunny CDN, build farm).
 
 Tailor depth to what the user asked — default to a short orientation, not a
 full dump. For the per-service internals, point at

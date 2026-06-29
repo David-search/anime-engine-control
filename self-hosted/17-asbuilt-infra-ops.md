@@ -1,5 +1,12 @@
 # 17 · As-built: infrastructure, deploy & ops runbook
 
+> ⚠️ **HISTORICAL as-built snapshot (2026-06-26) — NOT the current topology.** The video
+> origin **`vast-canada-3` (`159.48.242.1`) no longer exists** — it migrated to offshore
+> (`185.255.120.59`), the build farm is now **6 nodes** (`canada-2..7`), and serving is via
+> the **Bunny CDN** (`cdn.anichan.net`, token-signed). **Do not deploy/ssh against the
+> hosts/IPs/ports in this doc.** CURRENT ops: [STATE.md](../STATE.md) ·
+> [RUNBOOK.md](RUNBOOK.md) · [19-cdn-token-auth-and-hardening.md](19-cdn-token-auth-and-hardening.md) · CLAUDE.md.
+
 The operational reality of AniChan self-hosting, as it actually runs. Where docs
 [01](01-ecosystem-and-extractors.md)–[13](13-mapping-rethink.md) cover *why* and
 *how* the pipeline is designed, this doc is the **as-built** topology, the full

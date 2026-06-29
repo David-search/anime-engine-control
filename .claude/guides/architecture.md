@@ -6,10 +6,15 @@ research, [research/host-integration-findings.md](../../research/host-integratio
 
 ## What is AniChan
 
-A HiAnime-style anime catalog + streaming site (planned domain
-`anichan.net`). Users hit the frontend, browse or search the catalog,
-open a rich detail page (characters / staff / relations / recommendations),
-and stream via an embedded third-party host player.
+A HiAnime-style anime catalog + streaming site, **live at https://anichan.net**
+(via the web-goongle nginx TLS edge). Users hit the frontend, browse or search
+the catalog, open a rich detail page (characters / staff / relations /
+recommendations), and stream in the in-house **hls.js + JASSUB** player. Stream
+sources are resolved by the backend `/api/watch/*` path: the **Miruro** aggregator
+pipe (curated hosts) plus the **self-hosted** tier — *★ AniChan*, Source 1 — served
+from the **Bunny CDN** (`cdn.anichan.net`, token-signed) backed by the offshore HLS
+origin and a 6-node build farm. Full serving design:
+[../../self-hosted/19-cdn-token-auth-and-hardening.md](../../self-hosted/19-cdn-token-auth-and-hardening.md).
 
 There is one read path and one write path:
 
@@ -25,7 +30,8 @@ There is one read path and one write path:
   for 30 min.
 
 The frontend is an AniList-style filtered browse UI plus a rich detail
-page and a MegaPlay iframe player. Auth is email/password + Google.
+page and an **hls.js + JASSUB** watch panel (self-host Source 1 +
+Miruro-resolved hosts). Auth is email/password + Google.
 
 ## What backs each capability
 
@@ -35,8 +41,8 @@ page and a MegaPlay iframe player. Auth is email/password + Google.
 | Catalog / detail / browse        | MongoDB `anime_db.anime`                                            |
 | Trending (only cached AniList)   | AniList `TRENDING_DESC`, 30-min in-process cache                     |
 | Auth (email/password + Google)   | MongoDB `anime_db.users`                                            |
-| Social (comments / likes / history) | MongoDB `anime_db.{comments,likes,history}`                      |
-| Playback                         | MegaPlay iframe (AniList-keyed), embedded — we don't rip CDNs       |
+| Social (comments/likes/history/watchlist/lists) | MongoDB `anime_db.{comments,likes,history,watchlist,lists,list_ratings}` |
+| Playback (streaming)             | `/api/watch/*`: Miruro secure-pipe (curated hosts) + **self-host Source 1** → Bunny CDN (`cdn.anichan.net`, token-signed) ← offshore origin ← 6-node build farm |
 
 The live API never calls AniList per-request (except the cached trending
 endpoint). The catalog is fully materialised in Mongo + ES by the ingest
@@ -66,7 +72,11 @@ no source.
     the heavy enrichment fields (relations, characters, staff,
     recommendations, reviews) for entries that have been enriched.
   - `users` — auth (email/password hashes + Google-linked accounts).
-  - `comments`, `likes`, `history` — social + watch state.
+  - `comments`, `likes`, `history` — per-anime social + resume-watch.
+  - `watchlist` ("My List"), `lists` (public *tops* / private *collections*),
+    `list_ratings` — user lists + 1–5 ratings on public lists.
+  - `selfhost_cache` — self-host coverage marks (per anilistId → cached sub/dub
+    eps, `ep_titles`, `total_eps`); written by the build-farm `cache-state` callback.
 - **Elasticsearch 8.13 `anime` index** (container `elasticsearch`,
   in-net `elasticsearch:9200`): the search/suggest layer. Carries a
   `search_as_you_type` suggest field; facets for genres / tags / source /

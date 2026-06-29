@@ -1,5 +1,12 @@
 # 15 · As-built: ingest automation, cache & serving
 
+> ⚠️ **HISTORICAL as-built snapshot (2026-06-26) — NOT the current topology.** The video
+> origin has since **migrated from `vast-canada-3` (`159.48.242.1`) to offshore
+> (`185.255.120.59`)**, the build farm is now **6 nodes** (`canada-2..7`), and serving is
+> via the **Bunny CDN** (`cdn.anichan.net`, token-signed). Trust this doc for the *design
+> & logic*, NOT for hosts/IPs/ports. CURRENT state: [STATE.md](../STATE.md) ·
+> [RUNBOOK.md](RUNBOOK.md) · [19-cdn-token-auth-and-hardening.md](19-cdn-token-auth-and-hardening.md) · CLAUDE.md.
+
 The automation + storage tier that turns **"a viewer just opened episode N"**
 into **"a static HLS package nginx serves to everyone"** — and keeps doing it
 within a fixed GB budget, without ever letting a bulk pre-cache backlog starve a

@@ -73,7 +73,7 @@ A CI/CD alt path lives in each repo's `.github/workflows/ci-cd.yml`
 owner adds GitHub Actions secrets — Claude **cannot** set these:
 
 - both repos: `SERVER_SSH_KEY` (private key for `root@70.30.158.46:43730`)
-- frontend repo: `NEXT_PUBLIC_BACKEND_URL` = `http://70.30.158.46:43577`
+- frontend repo: `NEXT_PUBLIC_BACKEND_URL` = `https://anichan.net`
 
 Server deploy dirs: `/home/anime/frontend`, `/home/anime/backend`
 (each holds `Dockerfile`, `docker-compose.yml` with `build: .`, and a

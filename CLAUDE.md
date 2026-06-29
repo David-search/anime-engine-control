@@ -302,7 +302,7 @@ CI/CD secrets the owner must add (Claude cannot):
 | Repo                    | Secret                  | Value                                |
 |-------------------------|-------------------------|--------------------------------------|
 | both                    | `SERVER_SSH_KEY`        | private key for `root@70.30.158.46:43730` |
-| `anime-engine-frontend` | `NEXT_PUBLIC_BACKEND_URL` | `http://70.30.158.46:43577`        |
+| `anime-engine-frontend` | `NEXT_PUBLIC_BACKEND_URL` | `https://anichan.net`              |
 
 `/deploy-backend` and `/deploy-frontend` drive the build-on-server flow
 (sync source → `compose up -d --build` → verify health), not the CI/CD

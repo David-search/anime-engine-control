@@ -28,7 +28,7 @@ Claude **cannot** set them — only the repo owner (`David-search`) can.
 | Secret | Repos | Value |
 | --- | --- | --- |
 | `SERVER_SSH_KEY` | both | private key for `root@70.30.158.46:43730` (vast-canada-2) |
-| `NEXT_PUBLIC_BACKEND_URL` | frontend only | `http://70.30.158.46:43577` (baked into the build as a build arg) |
+| `NEXT_PUBLIC_BACKEND_URL` | frontend only | `https://anichan.net` (public HTTPS origin via the edge; baked as a build arg) |
 
 ## Without the secrets, the workflow fails
 

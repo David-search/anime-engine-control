@@ -61,7 +61,7 @@ there first.
 | [components/Row.tsx](components/Row.tsx)            | Horizontal scroller of `AnimeCard`s (home rails)             |
 | [components/Header.tsx](components/Header.tsx)      | Top nav + search box + genres dropdown + auth entry point    |
 | [components/FilterBar.tsx](components/FilterBar.tsx)| Faceted filter bar on `/search` (genres / tags / format / year / season) |
-| [components/HostEmbed.tsx](components/HostEmbed.tsx)| MegaPlay iframe player on `/watch/[id]/[ep]`                 |
+| [components/HostEmbed.tsx](components/HostEmbed.tsx)| iframe player for embed-type sources (e.g. anikoto/allmanga) on the watch panel |
 | [components/AuthModal.tsx](components/AuthModal.tsx)| Email + Google (GIS) sign-in modal                          |
 | [components/Comments.tsx](components/Comments.tsx)  | Comments thread (seeded with AniList reviews)               |
 | [components/Reactions.tsx](components/Reactions.tsx)| Like / share buttons                                         |
