@@ -200,9 +200,13 @@ so a 2nd backbone doesn't help — dead torrents are recovered via live Nyaa ins
 | Serves | nginx static `/srv/hls/{anilistId}/{ep}/sub/master.m3u8` (CORS `*`, Range/206) |
 | Capacity | ~17 TB disk, **16 TB usable cap** (disk-guard stops farms if `/srv` < 1.5 TB free) |
 | Backend wiring | canada-2 `/home/anime/backend/.env`: `SELFHOST_ORIGIN=http://185.255.120.59`, `SELFHOST_CACHE=1` |
+| **CDN (front)** | **Bunny pull-zone `cdn.anichan.net`** (CNAME → `anichan.b-cdn.net`, Force SSL, token auth). `SELFHOST_CDN_BASE=https://cdn.anichan.net` + `SELFHOST_CDN_TOKEN_KEY` (secret). Heavy bytes serve **direct from Bunny, token-signed**; offshore is the pull origin. |
+| **⚠️ Backup** | **none yet — single point of failure** (PENDING, see [STATE.md](../../STATE.md)) |
 
-The backend **proxies** origin HLS via `/api/watch/m3u8` (origin IP stays hidden);
-coverage marks land in Mongo `anime_db.selfhost_cache` (gated by `SELFHOST_INGEST_TOKEN`).
+The heavy self-host bytes now serve **direct from the Bunny CDN** (token-signed); only the
+KB-sized playlists proxy through canada-2's `/api/watch/m3u8`. Origin IP stays hidden (Bunny
+pulls it). Coverage marks land in Mongo `anime_db.selfhost_cache` (gated by
+`SELFHOST_INGEST_TOKEN`). Full design: [../../self-hosted/19-cdn-token-auth-and-hardening.md](../../self-hosted/19-cdn-token-auth-and-hardening.md).
 
 ### Quick farm probes
 

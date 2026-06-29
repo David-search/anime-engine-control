@@ -162,7 +162,7 @@ if [ ${#missing[@]} -gt 0 ]; then
   banner+="Couldn't auto-clone: ${missing[*]} — populate .env first (REPO_*, GITHUB_TOKEN)."$'\n'
 fi
 banner+=$'\n'
-banner+="On the first turn: greet the user, render the AniChan system architecture diagram from CLAUDE.md, then summarise this work/ state."$'\n'
+banner+="On the first turn: greet the user, READ STATE.md (current snapshot + PENDING list), run /startup (live check: git + 6 build nodes + offshore + app health), render the AniChan system diagram from CLAUDE.md, then summarise work/ state + anything off."$'\n'
 
 # Emit JSON for the hook protocol
 python3 -c '

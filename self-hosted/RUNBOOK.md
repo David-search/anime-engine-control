@@ -167,11 +167,14 @@ Bug guarded: `ingest.download()` returns `(None,None)` on a dead torrent (does N
   `root@185.255.120.59` directly (the `offshore` ssh alias is only on the laptop). Each node's
   pubkey lives in offshore `/root/.ssh/authorized_keys` (13 keys currently); nginx static-serves
   `/srv/hls/{aid}/{ep}/sub/{master.m3u8, v0, a0=jpn, a1=eng, subs}` (dual-audio + subs).
-- **Public serving path = backend proxy, not direct.** Users hit
-  `https://anichan.net/api/watch/m3u8?url=…185.255.120.59…` — the **web-goongle** nginx edge
-  (`66.55.65.89`, shared w/ goongle.net, stream-through `location /api/watch/`) → backend on
-  canada-2 → proxies the offshore origin (IP hidden, SSRF-guarded). Offshore *should* serve
-  directly someday (HTTPS + cdn subdomain) to offload canada-2 bandwidth — **not done yet** (the gap).
+- **Public serving path = Bunny CDN, token-signed** (since 2026-06-29 — the bandwidth-offload
+  gap is CLOSED). Heavy bytes (segments/subtitles/fonts) serve **direct from `cdn.anichan.net`**
+  (Bunny pull-zone → offshore origin), token-signed; only the KB playlists proxy through
+  canada-2's `/api/watch/m3u8` (to strip subtitle groups + rewrite children to signed CDN URLs).
+  Backend env: `SELFHOST_CDN_BASE`, `SELFHOST_CDN_TOKEN_KEY`, `SELFHOST_CDN_TTL`. Origin IP stays
+  hidden (Bunny pulls it). Full design + anti-scrape model + Cloudflare/backup plans:
+  [19-cdn-token-auth-and-hardening.md](19-cdn-token-auth-and-hardening.md).
+  **⚠️ Offshore is still a single point of failure — a backup mirror is PENDING (see STATE.md).**
 - **On-open auto-cache is DISABLED (2026-06-26).** The backend's `trigger_ingest` →
   `{SELFHOST_INGEST_URL}/ingest` "cache-on-open" path is commented out in `watch.py` — caching is
   now a deliberate build-farm step, not viewer-triggered. (`SELFHOST_INGEST_URL` was

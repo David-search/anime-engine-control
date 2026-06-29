@@ -101,6 +101,13 @@ The heart of the app — [app/routers/watch.py](app/routers/watch.py) +
   serves subtitles (stream-referer → miruro → none). Proxied with the per-host
   Referer/Origin the CDN needs, so **the origin IP never reaches the browser**;
   an **SSRF guard** rejects private/loopback/link-local/reserved/metadata IPs.
+- **CDN direct-serve + token auth (`_emit`/`_sign`, since 2026-06-29).** When
+  `SELFHOST_CDN_BASE` is set, the self-host source serves heavy bytes
+  (segments/subtitles/fonts) **direct from Bunny `cdn.anichan.net`**, token-signed
+  (`_sign` = `sha256_b64url(SELFHOST_CDN_TOKEN_KEY + path + expires)`, TTL
+  `SELFHOST_CDN_TTL`); playlists keep proxying so their child URLs get rewritten +
+  signed. Miruro/no-CDN fall back to the proxy. Full design + anti-scrape model:
+  [claude/self-hosted/19-cdn-token-auth-and-hardening.md](../../self-hosted/19-cdn-token-auth-and-hardening.md).
 - **Coverage callback.** `POST /api/watch/cache-state` (auth: `SELFHOST_INGEST_TOKEN`)
   is how a build-farm node reports which eps are cached → **merges** into
   `selfhost_cache` (never regresses a partial run; fills `total_eps` from the catalog)
