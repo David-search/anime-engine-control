@@ -67,6 +67,82 @@ stream-through block.
 Only ever edit the `anichan.net` vhost; scope any `nginx -t` / reload so you don't
 disturb goongle. Certs renew via the host's existing certbot.
 
+**SSH:** `ssh web-goongle` (alias → `66.55.65.89`, root) — **password auth** (`EDGE_PASSWORD`
+in `.env`; no key yet — rotate + add a key). No `sshpass` on the laptop, so it prompts.
+
+### Full vhost — recoverable copy of `/etc/nginx/sites-enabled/anichan.net`
+
+Saved verbatim so the edge can be rebuilt if web-goongle is lost. (Note `X-Forwarded-For`
+is set on every location — that's the real client IP source for any future rate-limiting.)
+
+```nginx
+upstream anichan_app {                 # Next.js frontend
+    least_conn;
+    server 70.30.158.46:43879 max_fails=32 fail_timeout=20s;
+    keepalive 32;
+}
+upstream anichan_api {                 # FastAPI backend
+    least_conn;
+    server 70.30.158.46:43577 max_fails=32 fail_timeout=20s;
+    keepalive 32;
+}
+server {
+    listen 80;
+    listen [::]:80;
+    server_name anichan.net www.anichan.net;
+    return 301 https://anichan.net$request_uri;
+}
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name anichan.net www.anichan.net;
+    ssl_certificate     /etc/letsencrypt/live/anichan.net/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/anichan.net/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+
+    if ($host = 'www.anichan.net') { return 301 https://anichan.net$request_uri; }
+
+    location / {
+        proxy_pass http://anichan_app;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    # HLS streaming — MUST come BEFORE /api/. Stream-through (no buffering), pass Range,
+    # generous timeouts. Backend sets Cache-Control (segments immutable; m3u8 no-store).
+    location /api/watch/ {
+        proxy_pass http://anichan_api;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_read_timeout 120s;
+        proxy_send_timeout 120s;
+    }
+    location /api/ {
+        proxy_pass http://anichan_api;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering on;
+        proxy_read_timeout 30s;
+    }
+}
+```
+
+> ⚠️ For the future **Cloudflare** plan: this `anichan.net` vhost stays as the CF **origin**;
+> `cdn.anichan.net` is **not** in this file (it's a separate DNS CNAME straight to Bunny). When
+> CF fronts the app, switch the backend's client-IP source to `CF-Connecting-IP`.
+
 ## Shared infra — MongoDB + Elasticsearch
 
 Same host, shared with a separate goongle project. AniChan uses its
@@ -207,6 +283,42 @@ The heavy self-host bytes now serve **direct from the Bunny CDN** (token-signed)
 KB-sized playlists proxy through canada-2's `/api/watch/m3u8`. Origin IP stays hidden (Bunny
 pulls it). Coverage marks land in Mongo `anime_db.selfhost_cache` (gated by
 `SELFHOST_INGEST_TOKEN`). Full design: [../../self-hosted/19-cdn-token-auth-and-hardening.md](../../self-hosted/19-cdn-token-auth-and-hardening.md).
+
+#### offshore nginx — recoverable copy of `/etc/nginx/sites-enabled/hls`
+
+Saved verbatim so the origin can be rebuilt (or stood up on the backup host). Bunny pulls
+from this over HTTP; it serves `/srv/hls` static with the MIME types + CORS hls.js needs.
+
+```nginx
+# AniChan self-host HLS origin. Serves /srv/hls/{anilistId}/{ep}/{cat}/ (master.m3u8 + v*/a*/subs).
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    root /srv/hls;
+    autoindex off;
+    sendfile on; tcp_nopush on;
+    types {
+        application/vnd.apple.mpegurl m3u8;
+        video/mp2t                    ts;
+        video/iso.segment             m4s;
+        text/vtt                      vtt;
+        text/plain                    ass;
+        application/json              json;
+        font/ttf ttf; font/otf otf; font/woff woff; font/woff2 woff2;
+    }
+    default_type application/octet-stream;
+    location = /healthz { return 200 "ok\n"; }
+    location / {
+        add_header Access-Control-Allow-Origin   "*" always;
+        add_header Access-Control-Allow-Methods  "GET, HEAD, OPTIONS" always;
+        add_header Access-Control-Allow-Headers  "Range, Origin, Accept" always;
+        add_header Access-Control-Expose-Headers "Content-Length, Content-Range, Accept-Ranges" always;
+        if ($request_method = OPTIONS) { return 204; }
+        try_files $uri =404;
+    }
+}
+```
 
 ### Quick farm probes
 
